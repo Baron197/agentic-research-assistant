@@ -1,0 +1,29 @@
+# ---------------------------------------------------------------------------
+# Runtime dependencies for the KEYLESS path (graph, tools, API, tests, CI).
+# Nothing here requires an API key or network access at runtime.
+# ---------------------------------------------------------------------------
+langgraph>=0.2
+langchain-core>=0.3
+pydantic>=2.5
+pydantic-settings>=2.1
+fastapi>=0.110
+uvicorn>=0.27
+httpx>=0.27
+
+# UI (thin Streamlit client). Not imported by the test suite.
+streamlit>=1.33
+
+# Dev / CI tooling.
+ruff>=0.4
+pytest>=8.0
+
+# ---------------------------------------------------------------------------
+# OPTIONAL real-mode extras — install only if you set *_provider=real / openai.
+# They are import-guarded (loaded lazily inside the real provider classes) so
+# the keyless path never needs them. Uncomment to enable real mode:
+#
+#   openai>=1.30          # real LLM (llm_provider=openai)
+#   tavily-python>=0.3    # real web search (search_provider=web, search_backend=tavily)
+#   trafilatura>=1.6      # nicer readable-text extraction for HttpFetch
+#   dspy-ai>=3.0,<4       # optional DSPy track (agent_backend=dspy, make optimize)
+# ---------------------------------------------------------------------------

@@ -1,0 +1,14 @@
+# Streamlit base theme for the Agentic Research Assistant UI.
+# The app injects additional CSS for cards/timeline/chips; this sets the palette.
+[theme]
+primaryColor = "#2e6da4"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f2f6fb"
+textColor = "#1f2933"
+font = "sans serif"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false

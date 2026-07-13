@@ -1,0 +1,12 @@
+{"id": "T01", "question": "What are text embeddings and how is similarity between them measured?", "in_corpus": true, "expected_points": ["dense numerical vectors", "cosine similarity", "semantic search"]}
+{"id": "T02", "question": "What is a vector database and what is approximate nearest neighbor search?", "in_corpus": true, "expected_points": ["approximate nearest neighbor", "recall", "latency"]}
+{"id": "T03", "question": "Why does chunk size matter in retrieval and what chunking strategies exist?", "in_corpus": true, "expected_points": ["chunk size", "influential parameters", "irrelevant text"]}
+{"id": "T04", "question": "What is the difference between dense and sparse retrieval methods?", "in_corpus": true, "expected_points": ["sparse retrieval", "dense retrieval", "semantic similarity"]}
+{"id": "T05", "question": "How does hybrid search combine dense and sparse retrieval scores?", "in_corpus": true, "expected_points": ["hybrid search", "dense and sparse", "ranked list"]}
+{"id": "T06", "question": "What is reranking and why are cross-encoders used for it?", "in_corpus": true, "expected_points": ["reranking", "retrieved candidates", "relevant"]}
+{"id": "T07", "question": "How is a retrieval-augmented generation system evaluated?", "in_corpus": true, "expected_points": ["retrieval quality", "generation quality", "faithfulness"]}
+{"id": "T08", "question": "What causes hallucinations in RAG and how can grounding reduce them?", "in_corpus": true, "expected_points": ["hallucination", "retrieved context", "grounding"]}
+{"id": "T09", "question": "What is agentic RAG and what design patterns does it use?", "in_corpus": true, "expected_points": ["agentic", "plan use tools", "iterate"]}
+{"id": "T10", "question": "What query transformation techniques improve retrieval recall?", "in_corpus": true, "expected_points": ["query transformation", "rewriting", "recall"]}
+{"id": "T11", "question": "What is the capital city of France?", "in_corpus": false, "expected_points": []}
+{"id": "T12", "question": "How do I bake sourdough bread at home?", "in_corpus": false, "expected_points": []}

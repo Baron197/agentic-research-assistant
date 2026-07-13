@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # Force the keyless providers; CI never needs secrets or network.
+      LLM_PROVIDER: fake
+      SEARCH_PROVIDER: fake
+      FETCH_PROVIDER: fake
+      PYTHONPATH: src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Lint (ruff)
+        run: ruff check .
+      - name: Tests (pytest)
+        run: pytest -q
+      - name: Evaluation gate (citation coverage)
+        run: python -m eval.run_eval --min-citation-coverage 0.8
