@@ -1,0 +1,11 @@
+# Normalise line endings to LF in the repo (this project is Windows-authored but
+# CI and Docker run on Linux; consistent LF avoids CRLF diffs and shell/Make breakage).
+* text=auto eol=lf
+
+# Binary assets — never touch these.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+*.ico binary

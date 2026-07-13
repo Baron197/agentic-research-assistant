@@ -1,0 +1,22 @@
+# Keep the build context (and `gcloud run deploy --source`) small and secret-free.
+# NOTE: data/ (the corpus .md files) and .streamlit/ are intentionally NOT ignored —
+# the image needs them.
+.venv/
+venv/
+.git/
+.github/
+.claude/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.env
+runs/
+eval/results/
+artifacts/
+tests/
+docs/
+*.pdf
+*.egg-info/
+.DS_Store
