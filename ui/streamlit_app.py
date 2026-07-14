@@ -1,15 +1,22 @@
-"""Thin, multi-page Streamlit UI over the FastAPI service.
+"""Multi-page Streamlit UI for the research assistant.
 
-Deliberately contains NO business logic: it only collects inputs, calls the API
-over HTTP, and renders the response. All "intelligence" lives behind the API.
+It carries NO business logic — it only collects inputs, reaches the backend, and
+renders the response. The backend is reached two ways, chosen automatically:
+
+  * **http** (default) — call the FastAPI service over HTTP; the thin-client path
+    used with docker-compose / Cloud Run / a local ``make api``. Point it with the
+    ``API_URL`` env var (default http://127.0.0.1:8000; 127.0.0.1 rather than
+    ``localhost`` avoids an IPv6 surprise on Windows).
+  * **embedded** — run the keyless pipeline *in-process* via the ``agent`` package,
+    so the one Streamlit app is fully self-contained (e.g. on Streamlit Community
+    Cloud, which runs a single process). It just routes to the same ``agent``
+    functions the API handlers call — still no business logic here.
+
+Detection: probe the API once; if it is unreachable, fall back to embedded when the
+``agent`` package is importable. Force embedded with ``ARA_EMBEDDED=1``.
 
 Pages (native ``st.navigation``): Research · Critic A/B · History ·
-Observability · Guide. Shared state lives in ``st.session_state`` and persists
-across pages.
-
-Point it at a running API with the ``API_URL`` env var (default
-http://127.0.0.1:8000 — 127.0.0.1 rather than ``localhost`` avoids an IPv6
-resolution surprise on Windows when the API is bound to IPv4).
+Observability · Guide. Shared state lives in ``st.session_state``.
 """
 
 from __future__ import annotations
@@ -160,21 +167,96 @@ def _theme_css(dark: bool) -> str:
 st.markdown(_theme_css(bool(ss.get("dark", False))), unsafe_allow_html=True)
 
 
-# ----------------------------------------------------------------------- API calls
+# ------------------------------------------------------------------------- backend
+FORCE_EMBEDDED = os.environ.get("ARA_EMBEDDED", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _embed() -> dict[str, Any] | None:
+    """Import the ``agent`` package for in-process use; None if unavailable.
+
+    Cheap on repeat calls — Python caches modules in ``sys.modules``.
+    """
+    try:
+        import sys
+        from pathlib import Path
+        src = str(Path(__file__).resolve().parents[1] / "src")
+        if src not in sys.path:
+            sys.path.insert(0, src)
+        from agent import __version__
+        from agent.config import get_settings
+        from agent.metrics import support_rate
+        from agent.observability import aggregate, load_run, recent_runs
+        from agent.runner import render_report_markdown, run
+        from agent.tools.search import list_corpus
+        return {"version": __version__, "get_settings": get_settings,
+                "support_rate": support_rate, "aggregate": aggregate,
+                "load_run": load_run, "recent_runs": recent_runs,
+                "render_markdown": render_report_markdown, "run": run,
+                "list_corpus": list_corpus}
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _backend() -> str:
+    """'http' or 'embedded' — decided once per session and cached in state."""
+    if "backend" not in ss:
+        if FORCE_EMBEDDED:
+            ss.backend = "embedded" if _embed() else "http"
+        else:
+            try:
+                httpx.get(f"{API_URL}/health", timeout=3).raise_for_status()
+                ss.backend = "http"
+            except Exception:  # noqa: BLE001 — no API reachable; try in-process
+                ss.backend = "embedded" if _embed() else "http"
+    return ss.backend
+
+
 def api_health() -> dict[str, Any] | None:
+    if _backend() == "embedded":
+        e = _embed()
+        s = e["get_settings"]()
+        return {"status": "ok", "version": e["version"], "keyless": s.is_keyless}
     try:
         return httpx.get(f"{API_URL}/health", timeout=5).json()
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
 
 
 def api_get(path: str) -> Any | None:
+    if _backend() == "embedded":
+        return _embedded_get(path)
     try:
         r = httpx.get(f"{API_URL}{path}", timeout=30)
         r.raise_for_status()
         return r.json()
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
+
+
+def _embedded_get(path: str) -> Any | None:
+    """In-process equivalents of the API's GET endpoints (same return shapes)."""
+    e = _embed()
+    if e is None:
+        return None
+    s = e["get_settings"]()
+    if path == "/metrics":
+        return e["aggregate"](s.traces_dir)
+    if path == "/corpus":
+        return {"provider": s.search_provider, "documents": e["list_corpus"](s.corpus_dir)}
+    if path == "/runs" or path.startswith("/runs?"):
+        from urllib.parse import parse_qs, urlparse
+        limit = int(parse_qs(urlparse(path).query).get("limit", ["20"])[0])
+        return {"runs": e["recent_runs"](s.traces_dir, limit)}
+    if path.startswith("/runs/"):
+        res = e["load_run"](path.split("/runs/", 1)[1], s.traces_dir)
+        if res is None:
+            return None
+        data = res.model_dump()
+        data["markdown"] = e["render_markdown"](res.report)
+        data["citation_coverage"] = round(res.citation_coverage, 4)
+        data["support_rate"] = round(e["support_rate"](res.report, res.evidence), 4)
+        return data
+    return None
 
 
 def _base_payload() -> dict[str, Any]:
@@ -185,7 +267,9 @@ def _base_payload() -> dict[str, Any]:
 
 
 def _post_research(payload: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
-    """POST /research; return (data, None) on success or (None, error message)."""
+    """Run one research request; return (data, None) on success or (None, error)."""
+    if _backend() == "embedded":
+        return _embedded_research(payload)
     try:
         resp = httpx.post(f"{API_URL}/research", json=payload, timeout=REQUEST_TIMEOUT)
     except Exception as exc:  # noqa: BLE001
@@ -197,6 +281,28 @@ def _post_research(payload: dict[str, Any]) -> tuple[dict[str, Any] | None, str 
             d = resp.text
         return None, f"API error {resp.status_code}: {d}"
     return resp.json(), None
+
+
+def _embedded_research(payload: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
+    """In-process equivalent of POST /research (runs the pipeline directly)."""
+    e = _embed()
+    if e is None:
+        return None, "Embedded backend unavailable (the agent package could not be imported)."
+    overrides = {k: payload[k] for k in
+                 ("max_iterations", "token_budget", "require_approval", "enable_critic")
+                 if payload.get(k) is not None}
+    try:
+        res = e["run"](payload.get("question", ""), settings=e["get_settings"](), **overrides)
+    except Exception as exc:  # noqa: BLE001
+        return None, f"Research failed: {exc}"
+    return {
+        "run_id": res.run_id, "status": res.status, "question": res.question,
+        "report": res.report.model_dump(), "markdown": e["render_markdown"](res.report),
+        "iterations": res.iterations, "tool_calls": res.tool_calls, "tokens": res.tokens,
+        "usd": res.usd, "latency_ms": res.latency_ms, "dropped_claims": res.dropped_claims,
+        "citation_coverage": round(res.citation_coverage, 4),
+        "support_rate": round(e["support_rate"](res.report, res.evidence), 4),
+    }, None
 
 
 # --- state mutations (button callbacks) -------------------------------------

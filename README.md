@@ -128,7 +128,10 @@ lazily inside the real provider classes, so the keyless path never needs them).
 A polished, **multi-page Streamlit** front-end (`ui/streamlit_app.py`) sits over the
 API as a strict thin client (no business logic — every page only calls the API and
 renders the response), with **light & dark themes** and clean monochrome Material
-icons. Five pages (native `st.navigation`, shared state across pages):
+icons. When no API is reachable it transparently falls back to an **embedded
+in-process backend** (same functions, called directly), so the whole UI can also
+deploy as a **single self-contained app** — see [Deploy a demo](#deploy-a-demo-free).
+Five pages (native `st.navigation`, shared state across pages):
 
 - **Research** — ask a question (or pick an example chip); read the cited report in
   six tabs: *Report* (+ Markdown/JSON download), *Evidence & sources* (each gathered
@@ -171,11 +174,13 @@ docker compose up --build ui           # Streamlit on :8501, talks to the api se
 
 ## Deploy a demo (free)
 
-The app is a natural fit for a cloud free tier — keyless, containerised, no database
-or keys. Step-by-step instructions for **GCP** and **Oracle Cloud** are in
-[**DEPLOYMENT.md**](DEPLOYMENT.md):
+The app is a natural fit for a cloud free tier — keyless, no database or keys.
+Step-by-step instructions for four free paths are in [**DEPLOYMENT.md**](DEPLOYMENT.md):
 
-- **GCP Cloud Run** — a public link that scales to **$0 when idle** (always-free tier).
+- **Streamlit Community Cloud** — **easiest**: point it at this repo, main file
+  `ui/streamlit_app.py`, click Deploy. No Docker, no CLI, no card — the UI runs the
+  pipeline in-process (embedded backend), so it's one self-contained app.
+- **GCP Cloud Run** — a public link with a real separate API that scales to **$0 when idle**.
 - **Oracle Ampere A1** — free **forever** for the full API + UI stack.
 - Guidance for the **GCP $300 free trial**, plus cost guardrails to stay at exactly $0.
 

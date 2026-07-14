@@ -1,13 +1,19 @@
-# Deployment Guide — free hosting on GCP & Oracle Cloud
+# Deployment Guide — free hosting (Streamlit Cloud, GCP & Oracle Cloud)
 
 This guide deploys the **Agentic Research & Report Assistant** to the cloud for **$0**.
-The app is ideal for a free tier: it's a small, keyless, containerised Python stack
-(FastAPI API on `:8000` + a Streamlit UI on `:8501`) with **no database, no API keys,
-and no GPU** — the whole thing runs offline on deterministic fake providers.
+The app is ideal for a free tier: it's a small, keyless Python stack with **no database,
+no API keys, and no GPU** — the whole thing runs offline on deterministic fake providers.
 
-> **Two services, one image.** The `Dockerfile` builds a single image; the API and
-> the UI are two containers from it (see `docker-compose.yml`). The UI reaches the API
-> via the `API_URL` env var.
+There are two ways to run it, and the deploy target decides which you use:
+
+> **One app, or two services.**
+> - **Single self-contained app (easiest).** The Streamlit UI can run the agent pipeline
+>   **in-process** — no separate API. When it can't reach an API at `API_URL`, it auto-falls
+>   back to this *embedded* backend (force it with `ARA_EMBEDDED=1`). This is what makes the
+>   **one-click Streamlit Community Cloud** deploy below possible. → **Option S**.
+> - **Two services, one image.** The `Dockerfile` builds a single image; the API (`:8000`)
+>   and the UI (`:8501`) run as two containers from it (see `docker-compose.yml`), and the UI
+>   reaches the API over `API_URL`. → **Options A–C**.
 
 ---
 
@@ -15,17 +21,20 @@ and no GPU** — the whole thing runs offline on deterministic fake providers.
 
 | # | Option | Cloud | Free forever? | Persistent history? | Effort | Best for |
 |---|--------|-------|---------------|---------------------|--------|----------|
-| **A** | **Cloud Run** (serverless) | GCP | ✅ scales to $0 when idle | ❌ ephemeral | Low | A shareable public demo link |
+| **S** | **Community Cloud** (single app) | Streamlit | ✅ (sleeps when idle) | ❌ ephemeral | **Lowest** | **The fastest free demo link — no Docker, no CLI** |
+| **A** | **Cloud Run** (serverless) | GCP | ✅ scales to $0 when idle | ❌ ephemeral | Low | A shareable public demo link with a real API |
 | **B** | **e2-micro VM** + compose | GCP | ✅ (1 GB RAM — tight) | ✅ | Medium | Always-on full stack on GCP |
 | **C** | **Ampere A1 VM** + compose | Oracle | ✅ (2 OCPU / 12 GB) | ✅ | Medium | **Free-forever full stack (recommended)** |
 | **T** | Anything | GCP **Free Trial** | 💳 $300 / 90 days | either | — | Your next 3 months — then migrate to A or C |
 
 **Recommendations**
-- **Want it free forever with both API + UI?** → **Option C (Oracle Ampere A1)** — by far the most RAM headroom.
+- **Just want a free demo link with the least effort?** → **Option S (Streamlit Community Cloud)** — point it at the repo and click Deploy; no Docker, no CLI, no card. Same as how you deployed your RAG app.
+- **Want it free forever with a real separate API + UI?** → **Option C (Oracle Ampere A1)** — by far the most RAM headroom.
 - **Want a scale-to-zero public link that costs nothing when nobody's using it?** → **Option A (GCP Cloud Run)**.
 - **Have the GCP $300 trial for 3 months (you do)?** → Use **A or B freely now** (the credit covers any overage and unlocks any region/size), then **migrate to A or C before day 90** to stay at $0. See [§5](#5-gcp-free-trial-your-next-3-months).
 
 Current free-tier facts used below (verified July 2026 — always re-check, they change):
+- **Streamlit Community Cloud**: free public apps from a public GitHub repo, ~1 GB RAM, installs from `requirements.txt`; apps **sleep after inactivity** and wake on the next visit (a few seconds). No credit card.
 - **GCP Cloud Run** always-free: 2M requests/mo, scales to zero. **e2-micro** always-free: 1 instance/mo in `us-central1` / `us-west1` / `us-east1`, 1 GB RAM, 30 GB disk.
 - **Oracle Always Free**: Ampere A1 = **2 OCPU / 12 GB** (1,500 OCPU-hrs + 9,000 GB-hrs/mo), or 2× AMD E2.1.Micro (1 GB each); 200 GB block storage; 10 TB/mo egress. *(Oracle cut A1 from 4/24 to 2/12 in June 2026.)*
 - **GCP Free Trial**: $300 credit, 90 days, **no automatic charges** — the account closes at 90 days or $300 and you're only billed if you *manually* upgrade.
@@ -44,6 +53,47 @@ Current free-tier facts used below (verified July 2026 — always re-check, they
 Two small deployment-support files ship with the repo:
 - `.dockerignore` — keeps `.venv/`, `runs/`, etc. out of the build/upload.
 - The `Dockerfile` copies `.streamlit/` so the deployed UI keeps its theme.
+
+---
+
+## Option S — Streamlit Community Cloud (single app, easiest, no card)
+
+The fastest way to get a free public link — the **same flow you used for your RAG app**.
+There's **no separate API and no Docker**: the UI detects that nothing is listening on
+`API_URL` and runs the whole LangGraph pipeline **in-process** (the *embedded* backend).
+Every page — Research, Critic A/B, History, Observability, Guide — works from that one process.
+
+**1. Push this repo to GitHub** (public is fine — the app has no secrets):
+
+```bash
+git remote add origin https://github.com/Baron197/agentic-research-assistant.git
+git push -u origin main
+```
+
+**2. Deploy on Streamlit Community Cloud**
+- Go to **share.streamlit.io** → sign in with GitHub → **Create app** → **Deploy a public app from GitHub**.
+- **Repository:** `Baron197/agentic-research-assistant`  ·  **Branch:** `main`
+- **Main file path:** `ui/streamlit_app.py`
+- (Optional) **Advanced settings → Python version 3.11**. No secrets are required.
+- Click **Deploy**. Streamlit installs `requirements.txt` and boots the app; the first
+  build takes a couple of minutes.
+
+That's it — you get a `https://<your-app>.streamlit.app` link. The corpus (`data/`) ships
+in the repo, so search works immediately; the sidebar health chip will read
+`API up · vX.Y.Z · keyless=True` even though it's all one process.
+
+**Notes**
+- **No configuration needed.** With no `API_URL` reachable, the UI auto-selects the embedded
+  backend. To make that explicit (and skip the one-time health probe), add an env var / secret
+  `ARA_EMBEDDED=1` under *Advanced settings*.
+- **Ephemeral history.** Runs are written to the container's temp disk, so the
+  History/Observability pages show runs from the **current** app lifetime; a reboot or redeploy
+  starts fresh. That's expected on a free single-container host (same as Cloud Run).
+- **Sleeps when idle.** Free apps go to sleep after inactivity and wake on the next visit
+  (a few seconds). Fine for a portfolio demo.
+- **~1 GB RAM.** This keyless app fits comfortably; there's no model to load.
+- **Real mode:** if you ever want a real LLM/web search, add `OPENAI_API_KEY` etc. as
+  **Secrets** (never commit them) — see [§8](#8-optional-real-mode--not-free). Not needed for the demo.
 
 ---
 
@@ -287,6 +337,9 @@ gcloud compute firewall-rules delete ara-ports
 
 | Symptom | Fix |
 |---|---|
+| Streamlit Cloud: `ModuleNotFoundError` on boot | Confirm **Main file path** is `ui/streamlit_app.py` and the app deploys from the repo **root** — the UI adds `src/` to the path itself; a wrong root breaks the embedded import. |
+| Streamlit Cloud: pages error with "connection refused" | It's trying to reach an API. Set secret/env `ARA_EMBEDDED=1` to force the in-process backend (it normally auto-detects). |
+| Streamlit Cloud: app is slow on first open | It was asleep (free tier) — the first visit wakes it in a few seconds; subsequent loads are fast. |
 | Cloud Run UI is blank / "connecting…" forever | Ensure `--session-affinity` is set and the UI listens on port **8080**; keep `--server.enableXsrfProtection=false`. |
 | `gcloud run deploy --source` uploads for ages | Confirm `.dockerignore` exists (it excludes `.venv/`, `runs/`, `docs/`) so the context is small. |
 | Oracle: page won't load though the app is running | You opened the **Security List** but not the **OS firewall** (iptables/firewalld) — do both (Option C step 2). |
@@ -296,6 +349,8 @@ gcloud compute firewall-rules delete ara-ports
 
 ---
 
-*Simplest path to free-forever with the full UI: **Option C (Oracle Ampere A1)**. Simplest
-path to a zero-idle-cost public link: **Option A (GCP Cloud Run)**. Use the GCP trial to
-experiment freely for 3 months, then land on one of those.*
+*Fastest free demo link, zero setup: **Option S (Streamlit Community Cloud)** — one app,
+no Docker, no card. Simplest path to free-forever with a separate API + UI:
+**Option C (Oracle Ampere A1)**. Zero-idle-cost public link with a real API:
+**Option A (GCP Cloud Run)**. Use the GCP trial to experiment freely for 3 months, then land
+on one of those.*
