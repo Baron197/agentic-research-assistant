@@ -91,3 +91,72 @@ def test_cached_search_returns_independent_copies():
     first.append("MUTATED")  # caller mutates the returned list
     second = cached.search("q")
     assert second == ["a", "b"]  # cache entry was not corrupted
+
+
+# --- researching your OWN documents (multi-format corpus) --------------------
+
+def test_corpus_supports_txt_and_md(tmp_path):
+    # Point corpus_dir at an arbitrary folder of the user's own .txt/.md files.
+    (tmp_path / "revenue.txt").write_text(
+        "Revenue grew because the new pricing tier increased average contract "
+        "value across enterprise accounts.", encoding="utf-8")
+    (tmp_path / "onboarding.md").write_text(
+        "# Onboarding\nNew engineers set up the toolchain on day one.",
+        encoding="utf-8")
+
+    search = FakeSearch(corpus_dir=tmp_path, top_k=5)
+    hits = search.search("revenue pricing enterprise contract")
+    assert any(h.url == "local://revenue.txt" for h in hits)
+
+    fetch = FakeFetch(corpus_dir=tmp_path)
+    assert "pricing tier" in fetch.fetch("local://revenue.txt")
+
+
+def test_corpus_reads_pdf(tmp_path):
+    # PDF support is optional (needs pypdfium2); the test PDF is built with
+    # reportlab. Both are absent from the keyless install, so CI skips this.
+    pytest.importorskip("pypdfium2")
+    pytest.importorskip("reportlab")
+    from reportlab.pdfgen.canvas import Canvas
+
+    pdf_path = tmp_path / "brief.pdf"
+    canvas = Canvas(str(pdf_path))
+    canvas.drawString(72, 720, "Migration Brief")
+    canvas.drawString(72, 700, "The database migration reduces query latency "
+                                "for analytics workloads.")
+    canvas.save()
+
+    search = FakeSearch(corpus_dir=tmp_path, top_k=5)
+    hits = search.search("database migration latency analytics")
+    assert any(h.url == "local://brief.pdf" for h in hits)
+
+    fetch = FakeFetch(corpus_dir=tmp_path)
+    assert "migration" in fetch.fetch("local://brief.pdf").lower()
+
+
+def test_corpus_skips_unreadable_files(tmp_path):
+    # A corrupt/unsupported-content file must not break loading the good ones.
+    (tmp_path / "good.md").write_text("# Good\nUseful notes about caching.",
+                                      encoding="utf-8")
+    (tmp_path / "broken.pdf").write_bytes(b"%PDF-1.4 not actually a valid pdf")
+
+    search = FakeSearch(corpus_dir=tmp_path, top_k=5)
+    hits = search.search("caching notes")
+    assert any(h.url == "local://good.md" for h in hits)  # good file still found
+
+
+def test_real_mode_factories_wire_up_without_network():
+    # Constructing the real providers must not need network or the SDKs (imports
+    # are lazy inside the call methods), so this runs on the keyless install too.
+    from agent.llm import OpenAILLM, get_llm
+    from agent.tools.fetch import HttpFetch, get_fetch
+    from agent.tools.search import OpenWebSearch, get_search
+
+    real = Settings(
+        llm_provider="openai", openai_api_key="x",
+        search_provider="web", search_api_key="x", search_backend="tavily",
+        fetch_provider="http", enable_cache=False,
+    )
+    assert isinstance(get_search(real), OpenWebSearch)
+    assert isinstance(get_fetch(real), HttpFetch)
+    assert isinstance(get_llm(real), OpenAILLM)
