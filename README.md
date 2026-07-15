@@ -108,20 +108,47 @@ No `.env`, no API key, no network — the assistant ships with its own seed corp
 (`data/corpus/`) and evaluation tasks (`eval/tasks.jsonl`), so everything runs
 offline and deterministically.
 
-## Real mode (optional)
+## Real mode & using it for your own work
 
-Copy `.env.example` to `.env` and flip the providers:
+The keyless demo runs on fakes, but the **same pipeline does real research** — two
+independent switches you can use separately or together.
+
+### Research the live web
+
+Copy `.env.example` to `.env` (or edit the `.env` in the repo root) and flip the
+providers, then add two keys:
 
 ```bash
-LLM_PROVIDER=openai
-OPENAI_API_KEY=sk-...
-SEARCH_PROVIDER=web
-SEARCH_API_KEY=...        # Tavily by default
+LLM_PROVIDER=openai      OPENAI_API_KEY=sk-...       # https://platform.openai.com
+SEARCH_PROVIDER=web      SEARCH_API_KEY=tvly-...     # https://app.tavily.com (free tier)
 FETCH_PROVIDER=http
 ```
 
-Then `pip install openai tavily-python` (the real SDKs are import-guarded — loaded
-lazily inside the real provider classes, so the keyless path never needs them).
+Then install the real extras (import-guarded, so the keyless path never needs them):
+
+```bash
+pip install openai tavily-python trafilatura        # trafilatura = cleaner article text
+```
+
+Cost is low — `gpt-4o-mini` is a fraction of a cent per run and Tavily has a free
+tier. Keep real mode **local** (or on a private host); never put your keys on the
+public demo.
+
+### Research your own documents (work mode)
+
+Point `CORPUS_DIR` at a folder of **your own notes** and the pipeline researches
+them instead of the bundled corpus — with the same cited-report, no-fabricated-
+sources guarantees:
+
+```bash
+CORPUS_DIR=C:/Users/you/research-docs               # your own .md / .txt / .pdf files
+```
+
+- Works **keyless** (retrieval + citations); add an OpenAI key for a properly
+  synthesised narrative instead of the rule-based draft.
+- Supported formats: Markdown, plain text, and **PDF** (`pip install pypdfium2`;
+  text-only, so scanned/image PDFs are skipped — no OCR).
+- Combine both switches to research the web **and** your own docs, or use either alone.
 
 ## The UI
 

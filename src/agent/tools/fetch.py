@@ -11,6 +11,8 @@ import re
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
+from .documents import read_doc_text
+
 LOCAL_PREFIX = "local://"
 _MAX_BYTES = 1_000_000  # politeness/safety bound for the real fetcher
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -26,7 +28,11 @@ class FetchTool(Protocol):
 
 
 class FakeFetch:
-    """Resolve ``local://<file>`` URLs to local corpus document text."""
+    """Resolve ``local://<file>`` URLs to local corpus document text.
+
+    Handles the same formats as the corpus search (``.md``/``.txt``/``.pdf``) via
+    the shared reader, so a run over your own documents fetches them the same way.
+    """
 
     name = "fake-fetch"
 
@@ -45,7 +51,7 @@ class FakeFetch:
         path = self.corpus_dir / filename
         if not path.is_file():
             raise FileNotFoundError(f"corpus file not found for {url!r}: {path}")
-        return path.read_text(encoding="utf-8")
+        return read_doc_text(path)
 
 
 class HttpFetch:

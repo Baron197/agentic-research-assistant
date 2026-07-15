@@ -25,5 +25,6 @@ pytest>=8.0
 #   openai>=1.30          # real LLM (llm_provider=openai)
 #   tavily-python>=0.3    # real web search (search_provider=web, search_backend=tavily)
 #   trafilatura>=1.6      # nicer readable-text extraction for HttpFetch
+#   pypdfium2>=4          # research your own PDF documents (CORPUS_DIR with .pdf files)
 #   dspy-ai>=3.0,<4       # optional DSPy track (agent_backend=dspy, make optimize)
 # ---------------------------------------------------------------------------

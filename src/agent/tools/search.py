@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from ..textutil import best_sentences, content_word_set
+from .documents import iter_corpus_files, parse_doc
 
 
 @dataclass(frozen=True)
@@ -36,36 +37,21 @@ def list_corpus(corpus_dir: Path) -> list[dict[str, str]]:
     """List corpus documents as ``{filename, title, url}`` for the UI corpus view.
 
     Reuses the same title parsing as :class:`FakeSearch`, so the titles shown in
-    the corpus-coverage panel match the source titles on gathered evidence.
+    the corpus-coverage panel match the source titles on gathered evidence. Files
+    that cannot be read (e.g. a corrupt PDF) are skipped, not fatal.
     """
     docs: list[dict[str, str]] = []
-    for path in sorted(Path(corpus_dir).glob("*.md")):
-        title, _ = _parse_doc(path)
+    for path in iter_corpus_files(corpus_dir):
+        try:
+            title, _ = parse_doc(path)
+        except Exception:  # noqa: BLE001 - one unreadable file must not break the listing
+            continue
         docs.append({"filename": path.name, "title": title, "url": f"local://{path.name}"})
     return docs
 
 
-def _parse_doc(path: Path) -> tuple[str, str]:
-    """Return ``(title, body)`` for a corpus Markdown file.
-
-    The title is the first ``# heading`` (or the filename); the body excludes the
-    heading line so snippets are real prose rather than the title.
-    """
-    text = path.read_text(encoding="utf-8")
-    lines = text.splitlines()
-    title = path.stem.replace("-", " ").title()
-    body_lines = lines
-    for i, line in enumerate(lines):
-        if line.strip():
-            if line.lstrip().startswith("#"):
-                title = line.lstrip("#").strip()
-                body_lines = lines[i + 1 :]
-            break
-    return title, "\n".join(body_lines).strip()
-
-
 class FakeSearch:
-    """Deterministic keyword search over ``data/corpus/*.md``."""
+    """Deterministic keyword search over ``corpus_dir`` (``.md``/``.txt``/``.pdf``)."""
 
     name = "fake-search"
 
@@ -77,8 +63,11 @@ class FakeSearch:
     def _corpus(self) -> list[tuple[str, str, str]]:
         if self._docs is None:
             docs = []
-            for path in sorted(self.corpus_dir.glob("*.md")):
-                title, body = _parse_doc(path)
+            for path in iter_corpus_files(self.corpus_dir):
+                try:
+                    title, body = parse_doc(path)
+                except Exception:  # noqa: BLE001 - skip an unreadable file, don't crash the run
+                    continue
                 docs.append((path.name, title, body))
             self._docs = docs
         return self._docs
