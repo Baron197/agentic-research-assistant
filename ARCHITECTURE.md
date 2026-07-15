@@ -195,7 +195,7 @@ none are hard-coded.
 - **`observability.py`** — `Tracer`, cost table, persistence, `aggregate`.
 - **`runner.py`** — `run()` (the one entry point), `render_report_markdown`, and the CLI.
 - **`api.py`** — FastAPI service with validated request models and clean 500s. `POST /research` accepts optional `max_iterations`, `token_budget`, `require_approval`, and `enable_critic` overrides.
-- **`ui/streamlit_app.py`** — a thin HTTP client (no business logic): example-question chips, colour-coded metric cards, a live critic on/off toggle, tabbed results (report / evidence / timeline / raw JSON) with downloads, and a sidebar observability panel fed by `GET /metrics`. Base theme in `.streamlit/config.toml`; screenshots in `docs/screenshots/`.
+- **`ui/streamlit_app.py`** — a multi-page Streamlit front-end (five pages via native `st.navigation`: Research, Critic A/B, History, Observability, Guide) that carries **no business logic**: it calls the FastAPI service over HTTP, but transparently falls back to an **embedded in-process backend** (the same `agent` functions the API handlers call; force with `ARA_EMBEDDED=1`) so the whole UI can also deploy as a single self-contained app (e.g. Streamlit Community Cloud). The Research page renders results in six tabs (Report, Evidence & sources, Corpus, Step timeline, Agent graph, Run data) with Markdown/JSON downloads, colour-coded metric cards, example-question chips, and a live critic on/off toggle; the Observability page is fed by `GET /metrics`. Light + dark themes (base theme in `.streamlit/config.toml`); screenshots in `docs/screenshots/`.
 
 ## 9. The DSPy optimization track (optional)
 
