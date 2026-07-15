@@ -266,11 +266,11 @@ data/corpus/         11 seed docs (the "web" FakeSearch/FakeFetch operate over)
 eval/
   tasks.jsonl        12 golden tasks (incl. 2 out-of-corpus abstention checks)
   run_eval.py        metrics + critic A/B + CI gate
-tests/               deterministic, keyless end-to-end + unit tests (65)
+tests/               deterministic, keyless end-to-end + unit tests (65; 6 exercise the optional DSPy track)
 docs/screenshots/    UI screenshots used in this README
 Dockerfile  docker-compose.yml  .dockerignore  Makefile  pyproject.toml  requirements.txt
 .env.example  .gitattributes  .github/workflows/ci.yml
-README.md  ARCHITECTURE.md  DEPLOYMENT.md  STUDY_GUIDE.pdf  LICENSE
+README.md  ARCHITECTURE.md  DEPLOYMENT.md  STUDY_GUIDE.pdf  DEPLOY_GUIDE.pdf  LICENSE
 ```
 
 ## Testing & CI
@@ -279,7 +279,10 @@ README.md  ARCHITECTURE.md  DEPLOYMENT.md  STUDY_GUIDE.pdf  LICENSE
 end-to-end, no-fabricated-sources, the one-revise critic loop + iteration cap,
 tiny-budget → `partial`, the fake tools, the LRU cache, cost/aggregation, the
 provider-mix + config validation, and the API incl. the `/runs`, `/corpus`,
-`enable_critic` and 422 paths). CI (`.github/workflows/ci.yml`) runs
+`enable_critic` and 422 paths). Six of those cover the **optional** DSPy backend
+and are skipped unless `dspy-ai` is installed, so the default keyless install and
+CI run **59 and skip 6** (all 65 run once the DSPy extra is present — still keyless,
+via DSPy's `DummyLM`). CI (`.github/workflows/ci.yml`) runs
 `ruff check .` → `pytest -q` → the eval gate, all keyless with no secrets.
 
 ## DSPy optimization track (optional)

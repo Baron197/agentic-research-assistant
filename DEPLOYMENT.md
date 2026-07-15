@@ -4,6 +4,9 @@ This guide deploys the **Agentic Research & Report Assistant** to the cloud for 
 The app is ideal for a free tier: it's a small, keyless Python stack with **no database,
 no API keys, and no GPU** — the whole thing runs offline on deterministic fake providers.
 
+*A printable, illustrated version of this guide ships as [`DEPLOY_GUIDE.pdf`](DEPLOY_GUIDE.pdf)
+in the repo root — it walks through the fastest free paths (Streamlit Community Cloud and GCP Cloud Run).*
+
 There are two ways to run it, and the deploy target decides which you use:
 
 > **One app, or two services.**
