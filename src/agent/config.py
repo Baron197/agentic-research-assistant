@@ -57,6 +57,13 @@ class Settings(BaseSettings):
     token_budget: int = 60_000
     require_approval: bool = False
     top_search_results: int = 5
+    # Depth: evidence gathered (and claims written) per sub-question. Raise for
+    # more thorough reports; the researcher fetches sources in parallel so deeper
+    # runs stay fast. Default 2 keeps the keyless demo output stable.
+    evidence_per_subquestion: int = 2
+    # Parallel search/fetch workers in the researcher (real-mode latency win; the
+    # output is identical regardless of this value). 1 = no thread pool.
+    research_concurrency: int = 4
     enable_critic: bool = True
     max_question_length: int = 2_000
 

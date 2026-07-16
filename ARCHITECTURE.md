@@ -14,7 +14,10 @@ This project is a small but complete example of several agentic-AI patterns:
   small, independently testable, and easy to reason about.
 - **Tool use** — agents gather evidence through `search` and `fetch` tools that
   sit behind interfaces, so the same agent code runs against a local corpus
-  (keyless) or the real web.
+  (keyless) or the real web. The researcher fans these calls out **in parallel**
+  across sub-questions (a thread pool over the I/O) and then replays the
+  de-duplication and budget logic sequentially, so it is fast in real mode yet
+  deterministic; `evidence_per_subquestion` sets report depth.
 - **Guardrails** — schema validation with retry, a hard citation guarantee, a
   token/cost budget, and an iteration cap. The system fails safe, never hangs,
   and never invents sources.
