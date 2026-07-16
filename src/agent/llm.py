@@ -27,8 +27,6 @@ ROLE_CRITIC = "critic"
 
 # Minimum claim/snippet overlap for the critic to consider a claim supported.
 SUPPORT_THRESHOLD = 0.3
-# How many evidence items the writer turns into claims per section.
-CLAIMS_PER_SECTION = 2
 
 
 @dataclass(frozen=True)
@@ -135,7 +133,10 @@ class FakeLLM:
         counter = 0
         for hint, items in groups.items():
             claims = []
-            for ev in items[:CLAIMS_PER_SECTION]:
+            # One claim per gathered evidence item in the facet; the researcher's
+            # ``evidence_per_subquestion`` cap controls depth, so raising it makes
+            # both the evidence and the report deeper.
+            for ev in items:
                 counter += 1
                 sentences = best_sentences(question, str(ev.get("snippet", "")), k=2)
                 text = " ".join(sentences) if sentences else str(ev.get("snippet", ""))

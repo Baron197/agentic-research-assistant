@@ -22,6 +22,7 @@
 - **LangGraph orchestration** — a typed `StateGraph` of cooperating agents with explicit conditional edges, a revise loop, and a budget guard on every edge.
 - **Multi-agent roles** — Planner → Researcher → Writer → Critic → Finalizer, each a small, testable pure function of `(state, ctx)`.
 - **Tool use behind interfaces** — `search` and `fetch` each sit behind a `typing.Protocol` with a real and a deterministic fake implementation, chosen by a factory from typed config (Strategy pattern).
+- **Parallel research fan-out** — the researcher gathers sources for every sub-question concurrently (a thread pool over the search/fetch I/O) while replaying the URL de-duplication and budget accounting sequentially, so real-mode latency drops to roughly the slowest fetch yet the output stays **deterministic and identical** to a serial run. Report depth is a config knob (`evidence_per_subquestion`).
 - **A no-fabricated-sources guarantee** — `enforce_citations` strips every citation to an ungathered id and drops any claim left with no valid support; proven by a dedicated test.
 - **Guardrails** — schema-validated structured output (validate-and-retry), a hard `max_iterations` cap, and a token/cost budget that ends a run cleanly as `partial`.
 - **Evaluation wired into CI as a gate** — real metrics (no fabricated numbers), an A/B that proves the critic loop improves quality, and a `--min-citation-coverage` gate that fails the build on regression.
@@ -149,6 +150,12 @@ CORPUS_DIR=C:/Users/you/research-docs               # your own .md / .txt / .pdf
 - Supported formats: Markdown, plain text, and **PDF** (`pip install pypdfium2`;
   text-only, so scanned/image PDFs are skipped — no OCR).
 - Combine both switches to research the web **and** your own docs, or use either alone.
+
+**Tune the depth.** For more thorough reports, raise `EVIDENCE_PER_SUBQUESTION` (sources
+and claims per facet; default 2) and `TOP_SEARCH_RESULTS`. The researcher fetches sources
+in parallel (`RESEARCH_CONCURRENCY`, default 4), so a deeper run in real mode stays fast —
+latency is roughly the slowest fetch, not the sum. Depth changes the report; it does **not**
+change determinism (a given setting always produces the same output).
 
 ## The UI
 
@@ -362,7 +369,6 @@ raised citation_coverage / grounding from X to Y automatically."*
 
 - LangGraph `interrupt()` for true human-in-the-loop approval (currently a callback node).
 - MCP server wrappers for the `search`/`fetch` tools (interfaces are already MCP-friendly).
-- Parallel researcher fan-out across sub-questions.
 - Streaming step events to the UI (the cost/observability dashboard is now shipped).
 - LLM-as-judge faithfulness wired in for the real path (scaffolding + import guard present).
 
