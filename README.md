@@ -112,7 +112,9 @@ offline and deterministically.
 ## Real mode & using it for your own work
 
 The keyless demo runs on fakes, but the **same pipeline does real research** — two
-independent switches you can use separately or together.
+independent switches you can use separately or together. For the full step-by-step
+(install, keys, running on Windows without `make`, and deploying safely with your
+own keys) see **[REAL_MODE.md](REAL_MODE.md)**.
 
 ### Research the live web
 
@@ -304,7 +306,7 @@ tests/               deterministic, keyless end-to-end + unit tests (72; 65 in k
 docs/screenshots/    UI screenshots used in this README
 Dockerfile  docker-compose.yml  .dockerignore  Makefile  pyproject.toml  requirements.txt
 .env.example  .gitattributes  .github/workflows/ci.yml
-README.md  ARCHITECTURE.md  DEPLOYMENT.md  LICENSE
+README.md  ARCHITECTURE.md  DEPLOYMENT.md  REAL_MODE.md  LICENSE
 ```
 
 ## Testing & CI
