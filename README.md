@@ -283,6 +283,7 @@ src/agent/
   tools/
     search.py        SearchTool protocol + FakeSearch (corpus) + OpenWebSearch
     fetch.py         FetchTool protocol + FakeFetch (local://) + HttpFetch
+    documents.py     multi-format corpus reader (.md/.txt/.pdf) — research your own docs
   agents/
     planner.py  researcher.py  writer.py  critic.py
   guardrails.py      enforce_citations, validate/retry, budget + input + iteration caps
@@ -300,7 +301,7 @@ data/corpus/         11 seed docs (the "web" FakeSearch/FakeFetch operate over)
 eval/
   tasks.jsonl        12 golden tasks (incl. 2 out-of-corpus abstention checks)
   run_eval.py        metrics + critic A/B + CI gate
-tests/               deterministic, keyless end-to-end + unit tests (65; 6 exercise the optional DSPy track)
+tests/               deterministic, keyless end-to-end + unit tests (72; 65 in keyless CI, 7 need optional extras)
 docs/screenshots/    UI screenshots used in this README
 Dockerfile  docker-compose.yml  .dockerignore  Makefile  pyproject.toml  requirements.txt
 .env.example  .gitattributes  .github/workflows/ci.yml
@@ -309,15 +310,17 @@ README.md  ARCHITECTURE.md  DEPLOYMENT.md  STUDY_GUIDE.pdf  DEPLOY_GUIDE.pdf  LI
 
 ## Testing & CI
 
-`make test` runs a fast, deterministic, keyless suite of **65 tests** (graph
+`make test` runs a fast, deterministic, keyless suite of **72 tests** (graph
 end-to-end, no-fabricated-sources, the one-revise critic loop + iteration cap,
-tiny-budget → `partial`, the fake tools, the LRU cache, cost/aggregation, the
+tiny-budget → `partial`, the **parallel researcher fan-out** — proving a
+concurrent run is byte-identical to a serial one — the **depth** knob, the
+**multi-format corpus**, the fake tools, the LRU cache, cost/aggregation, the
 provider-mix + config validation, and the API incl. the `/runs`, `/corpus`,
-`enable_critic` and 422 paths). Six of those cover the **optional** DSPy backend
-and are skipped unless `dspy-ai` is installed, so the default keyless install and
-CI run **59 and skip 6** (all 65 run once the DSPy extra is present — still keyless,
-via DSPy's `DummyLM`). CI (`.github/workflows/ci.yml`) runs
-`ruff check .` → `pytest -q` → the eval gate, all keyless with no secrets.
+`enable_critic` and 422 paths). Seven exercise **optional** extras (6 the DSPy
+backend, 1 PDF-corpus reading) and skip unless those extras are installed, so the
+default keyless install and CI run **65 and skip 7** (all 72 run once the extras
+are present — still keyless, via fakes / `DummyLM`). CI (`.github/workflows/ci.yml`)
+runs `ruff check .` → `pytest -q` → the eval gate, all keyless with no secrets.
 
 ## DSPy optimization track (optional)
 
