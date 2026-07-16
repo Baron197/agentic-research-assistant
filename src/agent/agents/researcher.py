@@ -8,16 +8,19 @@ same source is never gathered twice, and records which sub-questions it has
 *attempted* (``researched_sqs``) so a revise loop never re-runs a facet — even
 one that yielded no evidence — which keeps the revise loop cheap.
 
-**Parallel fan-out.** The network-bound work — every search query and every page
-fetch across all pending sub-questions — runs concurrently on a small thread pool
+**Parallel fan-out.** The network-bound work — the search queries, then the page
+fetches the report will actually use — runs concurrently on a small thread pool
 (``research_concurrency``). The *decision* logic then runs sequentially over those
 cached results: the URL de-duplication that distributes shared search results
 across facets, stable evidence-id assignment, and budget accounting. Separating
-I/O (parallel) from decisions (sequential replay) means the output is
-**byte-for-byte identical to a one-at-a-time run** and fully deterministic, while
-real-mode latency drops to roughly the slowest single fetch instead of the sum.
-Raise ``evidence_per_subquestion`` for deeper reports; the parallel fetch keeps
-those deeper runs fast.
+I/O (parallel) from decisions (sequential replay) means a run gathers the **same
+evidence, citations, and token accounting** as a one-at-a-time run — deterministic,
+independent of thread timing (only each step's wall-clock ``ms`` differs, as it
+always has) — while real-mode latency drops to roughly the slowest fetch instead
+of their sum. Only as many pages as the replay can consume (``evidence_per_subquestion``
+per facet) are prefetched, so report depth, not the raw search width, bounds the
+fetching. Raise ``evidence_per_subquestion`` for deeper reports; the parallel
+fetch keeps those deeper runs fast.
 """
 
 from __future__ import annotations
@@ -93,9 +96,9 @@ def researcher(state: dict[str, Any], ctx: AgentContext) -> dict[str, Any]:
             "researched_sqs": researched, "trace": steps,
         }
 
-    # --- Parallel I/O: overlap every distinct search, then every candidate fetch.
-    # (Distinct keys, so each network call happens at most once; the replay below
-    # reads from these caches instead of touching the network.)
+    # --- Parallel I/O: overlap every distinct search, then the page fetches the
+    # replay will actually use. (Distinct keys, so each network call happens at
+    # most once; the replay below reads from these caches.)
     queries: list[str] = []
     for sq in pending:
         for q in sq.search_queries:
@@ -105,16 +108,32 @@ def researcher(state: dict[str, Any], ctx: AgentContext) -> dict[str, Any]:
         {q: (lambda q=q: ctx.search.search(q)) for q in queries}, concurrency
     )
 
-    candidate_urls: list[str] = []
+    # Prefetch only the URLs a successful replay would consume — each facet's first
+    # ``cap`` not-yet-taken results — so the fetching is bounded by report depth,
+    # not the raw search width. (A fetch failure that pushes a facet past this
+    # window is fetched lazily in the replay; rare.) This keeps the token/cost
+    # budget meaningful in real mode: we never eagerly fetch pages the run drops.
+    eager_urls: list[str] = []
+    provisional_seen = set(seen_urls)
     for sq in pending:
+        taken = 0
         for q in sq.search_queries:
+            if taken >= cap:
+                break
             res = search_out.get(q)
-            if res and res.ok:
-                for r in res.value:
-                    if r.url not in seen_urls and r.url not in candidate_urls:
-                        candidate_urls.append(r.url)
+            if not (res and res.ok):
+                continue
+            for r in res.value:
+                if taken >= cap:
+                    break
+                if r.url in provisional_seen:
+                    continue
+                if r.url not in eager_urls:
+                    eager_urls.append(r.url)
+                provisional_seen.add(r.url)
+                taken += 1
     fetch_out = _run_parallel(
-        {u: (lambda u=u: ctx.fetch.fetch(u)) for u in candidate_urls}, concurrency
+        {u: (lambda u=u: ctx.fetch.fetch(u)) for u in eager_urls}, concurrency
     )
 
     # --- Sequential replay: identical logic/ordering to a one-at-a-time run.
@@ -150,9 +169,15 @@ def researcher(state: dict[str, Any], ctx: AgentContext) -> dict[str, Any]:
                 with ctx.tracer.span("researcher", tool="fetch") as fp:
                     fp.input_summary = result.url
                     fres = fetch_out.get(result.url)
-                    doc = fres.value if (fres and fres.ok) else None
+                    if fres is None:  # beyond the prefetch window (a retry) — fetch now
+                        try:
+                            fres = _Outcome(value=ctx.fetch.fetch(result.url))
+                        except Exception as exc:  # noqa: BLE001
+                            fres = _Outcome(error=exc)
+                        fetch_out[result.url] = fres
+                    doc = fres.value if fres.ok else None
                     if doc is None:
-                        err = fres.error if (fres and not fres.ok) else "no content"
+                        err = fres.error if not fres.ok else "no content"
                         fp.tokens = 1
                         fp.output_summary = f"fetch failed: {err}"[:200]
                     else:
