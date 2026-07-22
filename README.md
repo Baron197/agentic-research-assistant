@@ -266,7 +266,6 @@ A suggested reading order for an AI-engineering reviewer:
 6. **`eval/run_eval.py`** — the metrics, the critic A/B, and the CI gate.
 7. **`tests/`** — start with `test_guardrails.py::test_enforce_citations_drops_fabricated_source`.
 8. **`ARCHITECTURE.md`** — the architecture deep dive.
-9. **`STUDY_GUIDE.pdf`** — a plain-English, illustrated walkthrough of the whole project.
 
 > "Show me the test that guarantees no fabricated sources":
 > `tests/test_guardrails.py::test_enforce_citations_drops_fabricated_source` and
@@ -307,7 +306,7 @@ tests/               deterministic, keyless end-to-end + unit tests (72; 65 in k
 docs/screenshots/    UI screenshots used in this README
 Dockerfile  docker-compose.yml  .dockerignore  Makefile  pyproject.toml  requirements.txt
 .env.example  .gitattributes  .github/workflows/ci.yml
-README.md  ARCHITECTURE.md  DEPLOYMENT.md  REAL_MODE.md  STUDY_GUIDE.pdf  DEPLOY_GUIDE.pdf  LICENSE
+README.md  ARCHITECTURE.md  DEPLOYMENT.md  REAL_MODE.md  LICENSE
 ```
 
 ## Testing & CI
