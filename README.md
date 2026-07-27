@@ -34,6 +34,7 @@
 
 ```bash
 make run Q="What are the main approaches to retrieval-augmented generation and their trade-offs?"
+# no make (e.g. Windows): PYTHONPATH=src python -m agent.runner "…same question…"
 ```
 
 ```text
@@ -136,6 +137,35 @@ pip install openai tavily-python trafilatura        # trafilatura = cleaner arti
 Cost is low — `gpt-4o-mini` is a fraction of a cent per run and Tavily has a free
 tier. Keep real mode **local** (or on a private host); never put your keys on the
 public demo.
+
+**A real live-web run** (actual output, abridged — question deliberately outside the
+bundled corpus, so every source had to come from the internet):
+
+```text
+## Executive Summary
+The Model Context Protocol (MCP) is an open standard designed to enhance the integration
+of AI agents with external data sources and tools, addressing key challenges in AI development.
+
+## Definition and Purpose of the Model Context Protocol (MCP)
+- MCP is an open standard that enables AI applications to connect seamlessly with external
+  data sources, tools, and systems. [1]
+- MCP allows developers to build secure, two-way connections between their data sources
+  and AI-powered tools. [2]
+… 5 sections, 7 claims in total …
+
+## Sources
+1. What is the Model Context Protocol (MCP)? — https://www.databricks.com/blog/what-is-model-context-protocol
+2. Introducing the Model Context Protocol — https://www.anthropic.com/news/model-context-protocol
+3. What Is An MCP Server? Key Features & Benefits — https://www.truefoundry.com/blog/mcp-server
+…
+run_id=… status=complete iterations=0 tool_calls=17 tokens=25273 usd=$0.0101 latency=27.5s citation_coverage=100%
+```
+
+Worth noting from that run: two source pages returned **403 Forbidden** and the run
+still completed with a fully-cited report (graceful degradation, covered by
+`test_researcher_survives_tool_failures`), and `iterations=0` — the real critic
+accepted the first draft, because the revise loop you see in keyless mode is driven
+by `FakeLLM`'s deliberately-uncited "Synthesis" claim.
 
 ### Research your own documents (work mode)
 
