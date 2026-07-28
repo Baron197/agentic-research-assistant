@@ -219,7 +219,7 @@ looped back.
 | | |
 |:---:|:---:|
 | ![Agent graph](docs/screenshots/agent-graph.png) | ![Critic A/B](docs/screenshots/critic-ab.png) |
-| **Agent graph** — this run's path in blue, revise loop lit up | **Critic A/B** — critic ON vs OFF, +0.17 coverage & support |
+| **Agent graph** — this run's path in blue, revise loop lit up | **Critic A/B** — critic ON vs OFF, live (keyless: +0.17 — [see caveat](#critic-ab--and-what-it-does-not-prove)) |
 | ![Observability](docs/screenshots/observability.png) | ![Dark mode](docs/screenshots/dark-mode.png) |
 | **Observability** — aggregate metrics across every run | **Dark mode** — a sidebar toggle flips the whole app |
 
@@ -270,7 +270,7 @@ import-guarded and reported as `n/a` in keyless mode.
 | `avg_latency_ms` | ~10 (machine-dep.) | offline, in-process |
 | `faithfulness` | n/a | requires a real model + judge |
 
-### Critic A/B (the headline result)
+### Critic A/B — and what it does *not* prove
 
 Running the critic ON vs OFF over the in-corpus tasks (`make eval-compare`):
 
@@ -279,10 +279,28 @@ Running the critic ON vs OFF over the in-corpus tasks (`make eval-compare`):
 | `citation_coverage` | **1.00** | 0.83 | **+0.17** |
 | `support_rate` | **1.00** | 0.83 | **+0.17** |
 
-With the critic OFF, deliberately-unsupported (uncited) claims survive into the
-final report; with it ON they are caught and removed. `source_validity` stays
-**1.0 in both** because `enforce_citations` is an always-on hard guarantee,
-independent of the critic.
+With the critic OFF, the deliberately-uncited claim survives into the final report;
+with it ON it is caught and removed. `source_validity` stays **1.0 in both** because
+`enforce_citations` is an always-on hard guarantee, independent of the critic.
+
+> **Read this before quoting the +0.17.** That delta is *by construction*: `FakeLLM._write`
+> deliberately emits one uncited "Synthesis" claim so the critic has something to catch, so
+> the number demonstrates that **the removal mechanism works** — it is **not** evidence that
+> a critic improves a real model's output.
+>
+> I re-ran the same A/B with a real LLM (`gpt-4o-mini`) over the same fixed corpus,
+> **3 independent repeats**:
+>
+> | Δ (ON − OFF) | Keyless | Real LLM (mean ± sd, n=3) |
+> |---|---|---|
+> | `citation_coverage` | +0.17 | **+0.004 ± 0.007** |
+> | `support_rate` | +0.17 | **+0.001 ± 0.048** (sign flips: +0.045, +0.007, −0.050) |
+>
+> Both are **statistically indistinguishable from zero**. A real writer cites what it says,
+> so the critic has nothing to remove — its value would only show on adversarial or
+> low-quality drafts, which this eval set does not contain. What survives real mode
+> unchanged is the guarantee: **`source_validity` = 1.00 in every arm and every mode.**
+> Full numbers and method in [REAL_MODE.md](REAL_MODE.md).
 
 ## How to review this repo
 
