@@ -169,6 +169,70 @@ run_id=… status=complete iterations=0 tool_calls=17 tokens=25273 usd=$0.0101 l
 
 ---
 
+## Evaluating in real mode — measured results
+
+The full 12-task evaluation was run three ways. **These are real recomputed numbers**, not estimates:
+
+```powershell
+# A — real LLM over the fixed local corpus (comparable to the keyless baseline)
+$env:LLM_PROVIDER="openai"; $env:SEARCH_PROVIDER="fake"; $env:FETCH_PROVIDER="fake"
+& $py -m eval.run_eval --out eval/results/real-corpus
+
+# B — real LLM + live web
+$env:LLM_PROVIDER="openai"; $env:SEARCH_PROVIDER="web"; $env:FETCH_PROVIDER="http"
+& $py -m eval.run_eval --out eval/results/real-web
+```
+
+| Metric | Keyless (baseline) | **A — real LLM / local corpus** | **B — real LLM / live web** |
+|---|---|---|---|
+| `citation_coverage` | 1.00 | **1.00** | 0.90 ¹ |
+| `source_validity` | 1.00 | **1.00** | **1.00** ✅ |
+| `support_rate` | 1.00 | 0.901 ² | 0.854 ² |
+| `point_coverage` | 0.90 | 0.833 | 0.60 ³ |
+| `abstention_accuracy` | 1.00 | **1.00** | 0.00 ⁴ |
+| avg tool calls | 8.9 | 17.1 | 17.6 |
+| avg tokens | 5,343 ⁵ | 3,995 | 28,885 |
+| avg latency | ~8 ms | 12.3 s | 31.5 s |
+| **cost (12 tasks)** | **$0.00** | **~$0.02** | **~$0.12** |
+
+**The headline: `source_validity` stayed at 1.00 in all three modes.** The no-fabricated-sources
+guarantee is structural (`guardrails.py::enforce_citations`) — it does not depend on the model, the
+provider, or the corpus. That is the number worth quoting.
+
+¹ **Not "10% of claims were uncited."** Nine of ten in-corpus tasks scored exactly 1.00; one (`T02`)
+produced an **empty report**, and `citation_coverage` returns `0.0` for a report with no claims — so
+the mean is 9/10. Every claim the system actually made was cited. See the `T02` note below.
+
+² **The metric is lexical, not semantic.** `support_rate` uses keyword overlap
+(`textutil.py::keyword_overlap` ≥ 0.3). A real LLM *paraphrases* its sources, so a faithful claim can
+score below the threshold. The drop measures the metric's bluntness at least as much as the model's
+faithfulness — an LLM-judge / NLI check is the honest upgrade.
+
+³ `expected_points` in `eval/tasks.jsonl` are phrased from the **bundled corpus**. Live web pages word
+things differently, so this metric is not meaningful in web mode.
+
+⁴ **Expected, and not a regression.** `T11` ("capital of France") and `T12` ("sourdough") are marked
+`in_corpus: false` to test abstention — but they are only unanswerable *relative to the local corpus*.
+On the live web both are trivially answerable, and the assistant answered them (5 and 7 cited claims).
+**Abstention is corpus-relative by design.** Evaluate over a fixed corpus (mode A) for comparable numbers.
+
+⁵ Different measurement bases: keyless charges an *estimate* (`approx_tokens`, ~4 chars/token) for
+every step, while real mode charges the **actual** `usage.total_tokens` for LLM calls. Don't read the
+keyless/real token columns as like-for-like.
+
+### What `T02` exposed (a real bug, found only against the live web)
+
+`T02` burned **210,941 tokens in 3 tool calls** and returned nothing. Cause: `HttpFetch` caps the
+*download* at 1 MB (`_MAX_BYTES`), but **nothing caps the extracted snippet**. `split_sentences`
+splits on `.!?` — a page with no sentence punctuation (JS-heavy pages, nav walls, minified content)
+therefore becomes **one "sentence"**, and `best_sentences` returns the whole ~1 MB document as a
+single snippet: ~260,000 tokens charged for one fetch, instantly blowing the 60,000 budget.
+
+The guardrails behaved correctly — the budget guard fired, the run ended cleanly, and it **abstained
+rather than fabricating**. But the root cause is worth fixing: clamp the snippet length in
+`researcher.py` before charging/storing it. A 4,000-character cap would leave every keyless snippet
+untouched (the longest is 417 chars), so determinism and the existing numbers are unaffected.
+
 ## Part 2 — Deploy in real OpenAI mode
 
 **The golden rule:** keys are **runtime secrets** — never committed, never baked into an image. The repo
