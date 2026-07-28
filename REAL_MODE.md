@@ -231,24 +231,35 @@ $env:LLM_PROVIDER="openai"; $env:SEARCH_PROVIDER="fake"; $env:FETCH_PROVIDER="fa
 & $py -m eval.run_eval --compare --out eval/results/real-corpus-ab
 ```
 
-| Delta (ON − OFF) | Keyless | **Real LLM (fixed corpus)** |
+Because a real model is non-deterministic, one run proves nothing — so the A/B was repeated
+**three times**:
+
+| Repeat | Δ `citation_coverage` | Δ `support_rate` |
 |---|---|---|
-| `citation_coverage` | **+0.17** | **+0.00** (1.00 vs 1.00) |
-| `support_rate` | +0.17 | **+0.045** (0.964 vs 0.919) |
+| r1 | +0.0000 | +0.0449 |
+| r2 | +0.0000 | +0.0073 |
+| r3 | +0.0125 | **−0.0500** |
+| **mean ± sd** | **+0.004 ± 0.007** | **+0.001 ± 0.048** |
+| *keyless, for contrast* | *+0.17 exactly, every time* | *+0.17 exactly, every time* |
 
 **Read this carefully — it is the most important measurement in the project:**
 
-1. **The coverage lift is exactly zero with a real model.** The entire keyless +0.17 was the planted
-   uncited "Synthesis" claim in `FakeLLM._write`. A real writer cites every claim it makes, so there
-   is nothing for the critic to remove and coverage is 1.00 in **both** arms.
-2. **The critic does still do something** — support_rate +0.045 — but it is small and *mixed*: it
-   changed the outcome on **4 of 10 tasks**, helping three (`T03` +0.264, `T06` +0.167, `T08` +0.143)
-   and **hurting one** (`T07` −0.125, where it removed a claim the metric considered supported). A
-   stricter verifier trades recall for precision on claim retention.
-3. **The delta is smaller than the noise.** Two runs of the *identical* configuration produced
-   support_rate **0.901** and **0.964** — a spread of **0.063**, larger than the measured **0.045**
-   critic effect. At n=1 per arm, with a non-deterministic model, **this lift is not statistically
-   distinguishable from run-to-run variance.**
+1. **The coverage lift is essentially zero with a real model** (+0.004 ± 0.007, spanning zero). The
+   entire keyless +0.17 was the planted uncited "Synthesis" claim in `FakeLLM._write`. A real writer
+   cites every claim it makes, so there is nothing for the critic to remove.
+2. **The support lift is zero too, and the sign flips** (+0.045, +0.007, **−0.050**). Mean
+   +0.001 ± 0.048: the critic helped in one repeat and *hurt* in another. Within a single repeat it
+   changed 4 of 10 task outcomes — helping three (`T03` +0.264, `T06` +0.167, `T08` +0.143) and
+   hurting one (`T07` −0.125, removing a claim the metric scored as supported). A stricter verifier
+   trades recall for precision on claim retention.
+3. **Both effects are statistically indistinguishable from zero** at n=3. This is not a small
+   positive effect — it is *no measurable effect*, on this eval set, with this metric.
+
+**Why that is not a condemnation of the critic:** the golden tasks all produce *well-behaved* drafts,
+which is the weakest possible case for a verifier. A critic earns its keep on adversarial, hallucinated
+or low-quality output — none of which this suite contains. Measuring it honestly would need adversarial
+drafts, an entailment-based support metric (the current one is keyword overlap, so it penalises faithful
+paraphrase), and repeats for error bars — which is exactly why these numbers have them.
 
 > **Why the fixed corpus and not the live web:** in web mode each arm issues fresh live searches, so
 > the two arms would differ by *retrieval variance as well as* the critic — confounding the very thing
