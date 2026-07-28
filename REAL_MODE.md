@@ -220,6 +220,48 @@ On the live web both are trivially answerable, and the assistant answered them (
 every step, while real mode charges the **actual** `usage.total_tokens` for LLM calls. Don't read the
 keyless/real token columns as like-for-like.
 
+### The critic A/B, re-run with a real model
+
+The headline "+0.17" comes from the **keyless** A/B. Re-running the same experiment with a real LLM
+tells a very different — and much more honest — story:
+
+```powershell
+# 10 tasks x critic ON/OFF, over the FIXED corpus so retrieval is identical in both arms
+$env:LLM_PROVIDER="openai"; $env:SEARCH_PROVIDER="fake"; $env:FETCH_PROVIDER="fake"
+& $py -m eval.run_eval --compare --out eval/results/real-corpus-ab
+```
+
+| Delta (ON − OFF) | Keyless | **Real LLM (fixed corpus)** |
+|---|---|---|
+| `citation_coverage` | **+0.17** | **+0.00** (1.00 vs 1.00) |
+| `support_rate` | +0.17 | **+0.045** (0.964 vs 0.919) |
+
+**Read this carefully — it is the most important measurement in the project:**
+
+1. **The coverage lift is exactly zero with a real model.** The entire keyless +0.17 was the planted
+   uncited "Synthesis" claim in `FakeLLM._write`. A real writer cites every claim it makes, so there
+   is nothing for the critic to remove and coverage is 1.00 in **both** arms.
+2. **The critic does still do something** — support_rate +0.045 — but it is small and *mixed*: it
+   changed the outcome on **4 of 10 tasks**, helping three (`T03` +0.264, `T06` +0.167, `T08` +0.143)
+   and **hurting one** (`T07` −0.125, where it removed a claim the metric considered supported). A
+   stricter verifier trades recall for precision on claim retention.
+3. **The delta is smaller than the noise.** Two runs of the *identical* configuration produced
+   support_rate **0.901** and **0.964** — a spread of **0.063**, larger than the measured **0.045**
+   critic effect. At n=1 per arm, with a non-deterministic model, **this lift is not statistically
+   distinguishable from run-to-run variance.**
+
+> **Why the fixed corpus and not the live web:** in web mode each arm issues fresh live searches, so
+> the two arms would differ by *retrieval variance as well as* the critic — confounding the very thing
+> the experiment is meant to isolate. Over the corpus, retrieval is deterministic, so the only
+> difference between arms is the critic. That is what makes it a controlled experiment.
+
+**The defensible claim** is therefore: *the critic's removal mechanism is proven to work end-to-end,
+and the fabrication guarantee is independent of it (source_validity = 1.00 in every arm) — but the
+keyless "+0.17" is a demonstration of the mechanism, not a measured quality gain. With a real model
+the coverage gain is zero and the support gain is within noise.* To measure the critic honestly you
+would need adversarial or low-quality drafts, repeated runs for error bars, and an entailment-based
+support metric rather than keyword overlap.
+
 ### What `T02` exposed (a real bug, found only against the live web)
 
 `T02` burned **210,941 tokens in 3 tool calls** and returned nothing. Cause: `HttpFetch` caps the
