@@ -192,7 +192,7 @@ none are hard-coded.
 - **`llm.py`** — `LLM` Protocol; `FakeLLM` (planner/writer/critic rules); `OpenAILLM` (lazy, JSON mode); `get_llm`.
 - **`tools/search.py` / `tools/fetch.py`** — Protocols + fakes (corpus / `local://`) + real (Tavily / httpx) + factories with optional LRU caching. **`tools/documents.py`** reads the corpus folder (Markdown / text / optional PDF), so pointing `CORPUS_DIR` at your own files makes the keyless pipeline research them.
 - **`cache.py`** — `LRUCache` (lock + `OrderedDict`) and `CachedSearch`/`CachedFetch` wrappers that surface hit/miss counts.
-- **`agents/*.py`** — the four nodes; `_common.py` holds the parsers and the `structured_call` validate/retry helper.
+- **`agents/*.py`** — the four nodes; `_common.py` holds the parsers and the `structured_call` validate/retry helper. The researcher also bounds each evidence snippet (`MAX_SNIPPET_CHARS`) so one unpunctuated page — which sentence-splitting would otherwise return whole — cannot consume the run's entire token budget.
 - **`guardrails.py`** — `clamp_input`, `enforce_citations`, `build_sources`, budget/iteration helpers, `validate_and_retry`.
 - **`graph.py`** — `GraphState`, the approval/finalizer nodes, the conditional routers, and `build_graph`.
 - **`observability.py`** — `Tracer`, cost table, persistence, `aggregate`.

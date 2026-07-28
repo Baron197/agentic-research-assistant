@@ -229,9 +229,21 @@ therefore becomes **one "sentence"**, and `best_sentences` returns the whole ~1 
 single snippet: ~260,000 tokens charged for one fetch, instantly blowing the 60,000 budget.
 
 The guardrails behaved correctly — the budget guard fired, the run ended cleanly, and it **abstained
-rather than fabricating**. But the root cause is worth fixing: clamp the snippet length in
-`researcher.py` before charging/storing it. A 4,000-character cap would leave every keyless snippet
-untouched (the longest is 417 chars), so determinism and the existing numbers are unaffected.
+rather than fabricating**. But the root cause was worth fixing.
+
+**Fixed** (`researcher.py::MAX_SNIPPET_CHARS`): a snippet is now clamped to 4,000 characters before
+it is charged or stored, so one hostile page can no longer starve the rest of the run. The cap sits
+far above any real extract (the longest snippet over the bundled corpus is ~420 chars), so keyless
+output is **byte-identical** — the canonical run still reports `tokens=5396`, and the keyless eval is
+unchanged. Pinned by `tests/test_robustness.py::test_researcher_caps_oversized_snippet`.
+
+Re-running that exact question against the live web, before vs after:
+
+| | Before | After |
+|---|---|---|
+| tokens | 210,941 | **10,130** (−95%) |
+| tool calls | 3 | 16 |
+| result | 0 claims, empty report | **8 sources, 100% cited, `status=complete`** |
 
 ## Part 2 — Deploy in real OpenAI mode
 
