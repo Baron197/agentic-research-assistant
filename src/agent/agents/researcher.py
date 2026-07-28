@@ -35,6 +35,19 @@ from ..schemas import Evidence
 from ..textutil import approx_tokens, best_sentences, strip_markdown
 from ._common import clean_hint
 
+# Hard bound on a single evidence snippet.
+#
+# ``HttpFetch`` caps the *download* at 1 MB, but sentence-based extraction can
+# still return the entire document as one snippet: ``split_sentences`` splits on
+# ``.!?``, so a real page with no sentence punctuation (JS-heavy pages, nav walls,
+# minified content) collapses to a single "sentence". That snippet is then charged
+# at ~4 chars/token — roughly 250k tokens for one fetch, which exhausts the whole
+# token budget in a single call and ends the run with no report. Bounding it here,
+# before the snippet is charged or stored, keeps one hostile page from starving the
+# rest of the run. 4,000 chars is far above any real extract (the longest snippet
+# over the bundled corpus is ~420 chars), so normal runs are unaffected.
+MAX_SNIPPET_CHARS = 4_000
+
 
 @dataclass(frozen=True)
 class _Outcome:
@@ -183,6 +196,10 @@ def researcher(state: dict[str, Any], ctx: AgentContext) -> dict[str, Any]:
                     else:
                         snippet = " ".join(best_sentences(query, strip_markdown(doc), k=2))
                         snippet = " ".join(snippet.split()) or result.snippet
+                        if len(snippet) > MAX_SNIPPET_CHARS:
+                            # An unpunctuated page yields one document-sized "sentence";
+                            # truncate before charging so it cannot eat the budget.
+                            snippet = snippet[:MAX_SNIPPET_CHARS].rstrip() + "..."
                         fp.tokens = approx_tokens(snippet)
                         fp.output_summary = snippet[:80]
                     fp.usd = ctx.tracer.cost(fp.tokens)

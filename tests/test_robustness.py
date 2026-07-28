@@ -62,6 +62,51 @@ def test_structured_call_charges_tokens_of_failed_attempts():
     assert resp.tokens == 20  # 10 (failed attempt) + 10 (successful retry)
 
 
+def test_researcher_caps_oversized_snippet(settings):
+    # Regression (found by the live-web eval, task T02): HttpFetch caps the
+    # DOWNLOAD at 1 MB, but sentence extraction could still return the whole
+    # document as one snippet — a page with no '.', '!' or '?' collapses to a
+    # single "sentence". That charged ~250k tokens for ONE fetch and exhausted
+    # the 60k budget, ending the run with an empty report.
+    from agent.agents.researcher import MAX_SNIPPET_CHARS
+    from agent.tools.search import SearchResult
+
+    class HugeUnpunctuatedFetch:
+        name = "huge-fetch"
+
+        def fetch(self, url: str) -> str:
+            return "vector database ann index recall latency " * 25_000  # ~1 MB, no . ! ?
+
+    class OneHit:
+        name = "one-hit"
+
+        def search(self, query: str):
+            return [SearchResult(title="Huge page", url="https://example.com/huge",
+                                 snippet="fallback")]
+
+    ctx = build_context(settings)
+    ctx.fetch = HugeUnpunctuatedFetch()
+    ctx.search = OneHit()
+    state = {
+        "plan": ResearchPlan(question="q", sub_questions=[
+            SubQuestion(id="SQ1", question="Core concepts: what is a vector database?",
+                        search_queries=["vector database"]),
+        ]),
+        "evidence": [],
+        "budget": Budget(token_limit=60_000),
+        "tool_calls": 0,
+        "researched_sqs": [],
+    }
+    out = researcher(state, ctx)
+
+    assert out["evidence"], "expected the oversized page to still yield evidence"
+    snippet = out["evidence"][0].snippet
+    assert len(snippet) <= MAX_SNIPPET_CHARS + 3, f"snippet not capped: {len(snippet)} chars"
+    # The whole point: one page must not be able to consume the run's budget.
+    assert not out["budget"].exceeded
+    assert out["budget"].tokens_used < 2_000, out["budget"].tokens_used
+
+
 def test_researcher_survives_tool_failures(settings):
     # A dead link / provider outage must degrade to "no evidence for that
     # result", never abort the run (regression).

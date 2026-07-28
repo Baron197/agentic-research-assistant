@@ -332,7 +332,7 @@ data/corpus/         11 seed docs (the "web" FakeSearch/FakeFetch operate over)
 eval/
   tasks.jsonl        12 golden tasks (incl. 2 out-of-corpus abstention checks)
   run_eval.py        metrics + critic A/B + CI gate
-tests/               deterministic, keyless end-to-end + unit tests (72; 65 in keyless CI, 7 need optional extras)
+tests/               deterministic, keyless end-to-end + unit tests (73; 66 in keyless CI, 7 need optional extras)
 docs/screenshots/    UI screenshots used in this README
 Dockerfile  docker-compose.yml  .dockerignore  Makefile  pyproject.toml  requirements.txt
 .env.example  .gitattributes  .github/workflows/ci.yml
@@ -341,7 +341,7 @@ README.md  ARCHITECTURE.md  DEPLOYMENT.md  REAL_MODE.md  LICENSE
 
 ## Testing & CI
 
-`make test` runs a fast, deterministic, keyless suite of **72 tests** (graph
+`make test` runs a fast, deterministic, keyless suite of **73 tests** (graph
 end-to-end, no-fabricated-sources, the one-revise critic loop + iteration cap,
 tiny-budget → `partial`, the **parallel researcher fan-out** — proving a
 concurrent run is byte-identical to a serial one — the **depth** knob, the
@@ -349,7 +349,7 @@ concurrent run is byte-identical to a serial one — the **depth** knob, the
 provider-mix + config validation, and the API incl. the `/runs`, `/corpus`,
 `enable_critic` and 422 paths). Seven exercise **optional** extras (6 the DSPy
 backend, 1 PDF-corpus reading) and skip unless those extras are installed, so the
-default keyless install and CI run **65 and skip 7** (all 72 run once the extras
+default keyless install and CI run **66 and skip 7** (all 73 run once the extras
 are present — still keyless, via fakes / `DummyLM`). CI (`.github/workflows/ci.yml`)
 runs `ruff check .` → `pytest -q` → the eval gate, all keyless with no secrets.
 
