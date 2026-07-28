@@ -99,13 +99,73 @@ aren't available on a Windows laptop without `make`.)*
 # -> {'status': 'ok', 'version': '0.1.0', 'keyless': False}
 ```
 
-### 5. Control the cost (real mode is paid — the guardrails are yours to set)
+### 5. What a real run actually looks like (measured, not illustrative)
+
+A genuine live-web run — the question was chosen to sit **outside** the bundled corpus, so
+every source had to come from the internet:
+
+```powershell
+$env:LLM_PROVIDER="openai"; $env:SEARCH_PROVIDER="web"; $env:FETCH_PROVIDER="http"
+& $py -m agent.runner "What is the Model Context Protocol (MCP) and what problem does it solve for AI agents?"
+```
+
+```text
+## Executive Summary
+The Model Context Protocol (MCP) is an open standard designed to enhance the integration
+of AI agents with external data sources and tools, addressing key challenges in AI development.
+
+## Definition and Purpose of the Model Context Protocol (MCP)
+- MCP is an open standard that enables AI applications to connect seamlessly with external
+  data sources, tools, and systems. [1]
+- MCP allows developers to build secure, two-way connections between their data sources
+  and AI-powered tools. [2]
+… 5 sections, 7 claims in total …
+
+## Sources
+1. What is the Model Context Protocol (MCP)? — https://www.databricks.com/blog/what-is-model-context-protocol
+2. Introducing the Model Context Protocol — https://www.anthropic.com/news/model-context-protocol
+3. What Is An MCP Server? Key Features & Benefits — https://www.truefoundry.com/blog/mcp-server
+…
+run_id=… status=complete iterations=0 tool_calls=17 tokens=25273 usd=$0.0101 latency=27.5s citation_coverage=100%
+```
+
+**What actually changes vs the keyless demo** (measured on the run above):
+
+| Behaviour | Keyless | Real (this run) |
+|---|---|---|
+| Planning | 4 *fixed* facets sharing **one** query | **5 sub-questions, each with its own queries** — retrieval genuinely diverges |
+| Section headings | clean labels (`Core concepts…`) | the sub-question text itself — `clean_hint()` splits on `":"`, and a real LLM rarely emits one |
+| Revise loop | `iterations=1` (always) | **`iterations=0` — the critic accepted the first draft** |
+| Sources | `local://reranking.md` | real `https://` URLs |
+| Tool calls / tokens | 8 / 4,436 | 17 / 25,273 |
+| Cost / latency | `$0.0000` / ~12 ms | **`$0.0101` / 27.5 s** |
+
+> **Important honesty note.** The revise loop **did not fire** in real mode. Keyless runs always
+> show `iterations=1` because `FakeLLM._write` deliberately appends one uncited "Synthesis" claim
+> so the critic has something to catch. A real writer cites what it says, the critic returns
+> `accept`, and the loop never runs. So the headline **"+0.17 critic A/B" is a controlled
+> demonstration of the mechanism, not evidence that a real critic improves quality.**
+
+**Real-world messiness to expect** (all observed on that one run):
+- **Some fetches will be refused.** Wikipedia and Medium both returned `403 Forbidden`. The run
+  continued and still produced a complete, fully-cited report — the graceful-degradation path
+  covered by `test_researcher_survives_tool_failures`.
+- **Extraction is imperfect.** Two pages yielded navigation boilerplate instead of article text.
+  10 evidence items were gathered but only **7 were cited** — the writer simply didn't use the junk.
+- **The guarantee still held:** 100% citation coverage, 0 dropped claims, and every `[n]` resolves
+  to a page that was actually fetched.
+- **Where the money goes:** the writer (~9.6k tokens) and the critic (~9.6k) dominate; searches and
+  fetches are almost free. Lowering `MAX_ITERATIONS` or the depth knobs is what reduces cost.
+
+### 6. Control the cost (real mode is paid — the guardrails are yours to set)
 - **`TOKEN_BUDGET`** — the pipeline stops cleanly as `partial` once a run exceeds it. Lower it to cap per-run spend.
 - **`OPENAI_MODEL`** — `gpt-4o-mini` is a fraction of a cent per run; reach for `gpt-4o` only on hard topics.
 - **`EVIDENCE_PER_SUBQUESTION` / `TOP_SEARCH_RESULTS`** — depth knobs; more sources ⇒ more tokens.
 - **`MAX_ITERATIONS`** — each critic revise re-runs the writer + critic (more tokens).
 - **OpenAI dashboard spend limit** — the ultimate backstop. Set it.
-- Ballpark: a `gpt-4o-mini` run is typically well under **$0.01**; Tavily searches are free within the tier.
+- Ballpark (**measured**): a 5-facet live-web run on `gpt-4o-mini` cost **$0.0101** (25,273 tokens).
+  A run over a *local* corpus is cheaper (smaller payloads). Tavily searches are free within the tier
+  — roughly 3–6 credits per run, so the 1,000/month free allowance is ~200 runs.
 
 ---
 
@@ -175,6 +235,25 @@ docker compose up -d --build     # the api + ui services read .env
 ```
 
 ---
+
+## Troubleshooting (real traps, hit in practice)
+
+| Symptom | Cause & fix |
+|---|---|
+| `401 Incorrect API key provided: # get on…` | **The inline-comment trap.** `python-dotenv` strips a `# comment` that follows a *value*, but if the value is **blank** it reads the comment **as the value**. So `OPENAI_API_KEY=    # get one at …` silently becomes that comment string. **Keep comments on their own line above a blank key.** |
+| Run works but reports `usd=$0.0000` | Still keyless — a provider is `fake`. Check `GET /health` → `keyless` must be `false`; all three of `LLM_PROVIDER` / `SEARCH_PROVIDER` / `FETCH_PROVIDER` must be flipped. |
+| `search_provider='web' … set FETCH_PROVIDER=http as well` | Fail-fast config validation (`config.py::_check_provider_mix`): web search returns `https://` URLs that `FakeFetch` cannot resolve. Flip fetch too. |
+| `NotImplementedError: search backend 'brave' …` | Only **tavily** is implemented (`search.py::OpenWebSearch`). Set `SEARCH_BACKEND=tavily`. |
+| Some sources show `fetch failed: … 403 Forbidden` | **Normal.** Many sites (Wikipedia, Medium) block non-browser agents. The run degrades gracefully and uses the sources it could fetch. |
+| A claim quotes navigation junk | `HttpFetch` extraction on JS-heavy pages. `pip install trafilatura` improves it; the writer usually just leaves the junk uncited. |
+| Costs higher than expected | Writer + critic dominate. Lower `MAX_ITERATIONS`, `EVIDENCE_PER_SUBQUESTION`, `TOP_SEARCH_RESULTS`, or `TOKEN_BUDGET`. |
+
+> ⚠️ **Evaluating in real mode:** `eval/tasks.jsonl` marks `T11` (capital of France) and `T12`
+> (sourdough) as `in_corpus: false` to test **abstention**. Those are only unanswerable *relative to
+> the bundled corpus* — on the live web they're trivially answerable, so with `SEARCH_PROVIDER=web`
+> the assistant will (correctly) answer them and `abstention_accuracy` will read **0.0**. That's a
+> property of the metric's corpus assumption, not a regression. Evaluate real mode over a **fixed
+> corpus** (`SEARCH_PROVIDER=fake` + `LLM_PROVIDER=openai`) if you want comparable numbers.
 
 ## Security & cost checklist (real mode)
 - [ ] Keys only in the host secret store or a **gitignored `.env`** — never committed, never in the image.
