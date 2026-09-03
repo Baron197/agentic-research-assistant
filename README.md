@@ -29,6 +29,7 @@
 - **First-class observability** — every run records an ordered trace of steps with tokens, USD cost, and latency; `/metrics` aggregates runs with a nearest-rank p95.
 - **Keyless mode** — `make test`, `make eval`, and the API all work with **no API key**; real mode (OpenAI + a real search provider) is one env var away.
 - **DSPy track (optional)** — the LLM reasoning steps can be swapped for declarative DSPy modules whose prompts are **auto-optimized** against the project's own grounding metric ("programming, not prompting"); import-guarded and off by default.
+- **MCP server (optional)** — the same pipeline is exposed over the **Model Context Protocol**, so Claude Desktop (or any MCP host) can call it as a tool and get back a report whose citations are structurally guaranteed. The no-fabricated-sources property becomes a promise the *calling* model can rely on.
 
 ## Example run (keyless, offline)
 
@@ -230,6 +231,57 @@ make api    # start the API on :8000 first
 make ui     # then the UI on :8501 (set API_URL to point elsewhere)
 ```
 
+## Use it from Claude Desktop (MCP server)
+
+The pipeline is also served over the **Model Context Protocol**, so an MCP host
+can call it as a tool. The point is not just reachability: when a model calls a
+tool, the tool's output *becomes* the model's context — so a tool that fabricates
+sources launders them into the answer with the tool's authority behind them. This
+one structurally cannot, which makes the guarantee portable to any caller.
+
+```bash
+pip install -e ".[mcp]"                # optional dependency; the keyless core never imports it
+PYTHONPATH=src python -m agent.mcp_server   # serves over stdio
+```
+
+Register it with Claude Desktop in `claude_desktop_config.json`
+(`%APPDATA%\Claude\` on Windows, `~/Library/Application Support/Claude/` on macOS).
+Use the **absolute path to the interpreter that has the project installed** —
+an ambient `python` is the usual cause of a server that silently fails to start:
+
+```json
+{
+  "mcpServers": {
+    "agentic-research-assistant": {
+      "command": "C:\\path\\to\\repo\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "agent.mcp_server"],
+      "cwd": "C:\\path\\to\\repo",
+      "env": { "PYTHONPATH": "C:\\path\\to\\repo\\src" }
+    }
+  }
+}
+```
+
+Three tools and one resource are exposed:
+
+| Primitive | Name | What it does |
+|---|---|---|
+| tool | `research(question, depth?)` | Runs the full pipeline; returns Markdown where every `[n]` resolves to a source that was actually retrieved |
+| tool | `list_sources()` | What the assistant can cite, so the host can tell in advance whether a question is in scope |
+| tool | `assistant_status()` | Mode, model, document count, and whether a call costs money |
+| resource | `corpus://documents` | The same listing as *application*-controlled context a host may attach up front |
+
+Two design decisions worth calling out:
+
+- **Real mode is opt-in, separately.** An MCP server answers whoever connects to
+  it, so a real-mode `.env` alone is not enough — without `MCP_ALLOW_REAL_MODE=true`
+  the providers are forced back to the keyless fakes and `assistant_status`
+  reports the downgrade instead of hiding it. A server left running cannot quietly
+  spend the operator's budget.
+- **The tool surface is a trust boundary.** The *model* chooses the arguments, so
+  only `depth` is exposed. Knobs that would weaken the guarantee (`enable_critic=False`)
+  or spend unbounded budget (`token_budget`) stay server-side.
+
 ## Docker
 
 ```bash
@@ -340,6 +392,7 @@ src/agent/
   observability.py   Step/Tracer, cost table, thread-safe persistence, aggregate (p95)
   runner.py          run(question, ...) -> RunResult (used by API/UI/eval/CLI)
   api.py             FastAPI: POST /research, GET /runs, /runs/{id}, /corpus, /health, /metrics
+  mcp_server.py      OPTIONAL MCP server (3 tools + 1 resource over stdio); import-guarded
   metrics.py         shared eval metrics (reused by eval + the DSPy optimizer)
   dspy_modules.py    OPTIONAL DSPy backend (Signatures + DSPyLLM); import-guarded
   dspy_metric.py     OPTIONAL DSPy optimization objective (reuses metrics.py)
@@ -350,7 +403,7 @@ data/corpus/         11 seed docs (the "web" FakeSearch/FakeFetch operate over)
 eval/
   tasks.jsonl        12 golden tasks (incl. 2 out-of-corpus abstention checks)
   run_eval.py        metrics + critic A/B + CI gate
-tests/               deterministic, keyless end-to-end + unit tests (73; 66 in keyless CI, 7 need optional extras)
+tests/               deterministic, keyless end-to-end + unit tests (92; 66 in keyless CI, 26 need optional extras)
 docs/screenshots/    UI screenshots used in this README
 Dockerfile  docker-compose.yml  .dockerignore  Makefile  pyproject.toml  requirements.txt
 .env.example  .gitattributes  .github/workflows/ci.yml
@@ -359,17 +412,21 @@ README.md  ARCHITECTURE.md  DEPLOYMENT.md  REAL_MODE.md  LICENSE
 
 ## Testing & CI
 
-`make test` runs a fast, deterministic, keyless suite of **73 tests** (graph
+`make test` runs a fast, deterministic, keyless suite of **92 tests** (graph
 end-to-end, no-fabricated-sources, the one-revise critic loop + iteration cap,
 tiny-budget → `partial`, the **parallel researcher fan-out** — proving a
 concurrent run is byte-identical to a serial one — the **depth** knob, the
 **multi-format corpus**, the fake tools, the LRU cache, cost/aggregation, the
 provider-mix + config validation, and the API incl. the `/runs`, `/corpus`,
-`enable_critic` and 422 paths). Seven exercise **optional** extras (6 the DSPy
-backend, 1 PDF-corpus reading) and skip unless those extras are installed, so the
-default keyless install and CI run **66 and skip 7** (all 73 run once the extras
-are present — still keyless, via fakes / `DummyLM`). CI (`.github/workflows/ci.yml`)
-runs `ruff check .` → `pytest -q` → the eval gate, all keyless with no secrets.
+`enable_critic` and 422 paths). Twenty-six of them exercise **optional** extras
+(19 the MCP server — including its schemas, its real-mode cost guard, and a
+stdout-purity check that protects the stdio transport — 6 the DSPy backend, 1
+PDF-corpus reading) and do not run unless those extras are installed. So a
+default keyless install, and CI, report **66 passed, 3 skipped** — the three
+optional groups skip as whole units — while a machine with the extras present
+runs all **92**, still keyless via fakes / `DummyLM`. CI
+(`.github/workflows/ci.yml`) runs `ruff check .` → `pytest -q` → the eval gate,
+all keyless with no secrets.
 
 ## DSPy optimization track (optional)
 
@@ -420,7 +477,9 @@ raised citation_coverage / grounding from X to Y automatically."*
 ## Roadmap
 
 - LangGraph `interrupt()` for true human-in-the-loop approval (currently a callback node).
-- MCP server wrappers for the `search`/`fetch` tools (interfaces are already MCP-friendly).
+- Consuming *external* MCP servers as tools inside the researcher (the server side is now shipped —
+  see [Use it from Claude Desktop](#use-it-from-claude-desktop-mcp-server); the client side would
+  make `search`/`fetch` pluggable with any third-party MCP tool).
 - Streaming step events to the UI (the cost/observability dashboard is now shipped).
 - LLM-as-judge faithfulness wired in for the real path (scaffolding + import guard present).
 

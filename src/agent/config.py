@@ -77,6 +77,13 @@ class Settings(BaseSettings):
     enable_cache: bool = True
     cache_size: int = 256
 
+    # --- MCP server ---------------------------------------------------------
+    # The MCP server runs the pipeline on behalf of whoever connects to it, so
+    # real mode (which spends the operator's OpenAI/search budget) has to be
+    # opted into explicitly. Without this flag MCP callers are served by the
+    # keyless providers even when a real-mode .env is present.
+    mcp_allow_real_mode: bool = False
+
     # --- Paths (absolute, anchored at the repo root) ------------------------
     corpus_dir: Path = PROJECT_ROOT / "data" / "corpus"
     traces_dir: Path = PROJECT_ROOT / "runs"

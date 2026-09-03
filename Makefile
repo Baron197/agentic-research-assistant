@@ -2,10 +2,11 @@
 PYTHON ?= python3
 export PYTHONPATH := src
 
-.PHONY: help install run api ui eval eval-compare eval-compare-backends optimize dspy-install test lint fmt docker clean
+.PHONY: help install run api ui mcp mcp-install eval eval-compare eval-compare-backends optimize dspy-install test lint fmt docker clean
 
 help:
 	@echo "targets: install run api ui eval eval-compare test lint fmt docker clean"
+	@echo "mcp:     mcp-install mcp                              (optional MCP server)"
 	@echo "dspy:    dspy-install optimize eval-compare-backends  (optional DSPy track)"
 	@echo 'usage:   make run Q="What are the trade-offs of RAG retrieval methods?"'
 
@@ -20,6 +21,12 @@ api:
 
 ui:
 	$(PYTHON) -m streamlit run ui/streamlit_app.py
+
+mcp:  ## serve the pipeline over MCP on stdio (an MCP host normally launches this)
+	$(PYTHON) -m agent.mcp_server
+
+mcp-install:  ## install the optional MCP dependency
+	$(PYTHON) -m pip install "mcp>=2.1,<3"
 
 eval:
 	$(PYTHON) -m eval.run_eval

@@ -27,6 +27,9 @@ dependencies = [
 real = ["openai>=1.30"]
 ui = ["streamlit>=1.33"]
 dev = ["ruff>=0.4", "pytest>=8.0"]
+# Serve the pipeline over the Model Context Protocol (python -m agent.mcp_server).
+# Pinned to the 2.x SDK: FastMCP was renamed MCPServer there, so 1.x will not run it.
+mcp = ["mcp>=2.1,<3"]
 # Optional DSPy track (declarative modules + metric-driven prompt optimization).
 dspy = ["dspy-ai>=3.0,<4"]
 
