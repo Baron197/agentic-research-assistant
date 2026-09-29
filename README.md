@@ -285,10 +285,14 @@ Two design decisions worth calling out:
 ## Docker
 
 ```bash
-docker compose up --build api          # serves the keyless API on :8000
+docker compose up --build api          # serves the API on :8000 (keyless unless a .env says otherwise)
 # optional UI:
 docker compose up --build ui           # Streamlit on :8501, talks to the api service
 ```
+
+The image runs **either mode**: keyless by default, or real mode when a `.env` next to
+`docker-compose.yml` sets the providers and keys (it's passed to the API container; keys are never
+baked into the image). See [DEPLOYMENT.md §8](DEPLOYMENT.md#8-real-mode--privately-on-0-infrastructure).
 
 ## Deploy a demo (free)
 
@@ -301,6 +305,9 @@ Step-by-step instructions for four free paths are in [**DEPLOYMENT.md**](DEPLOYM
 - **GCP Cloud Run** — a public link with a real separate API that scales to **$0 when idle**.
 - **Oracle Ampere A1** — free **forever** for the full API + UI stack.
 - Guidance for the **GCP $300 free trial**, plus cost guardrails to stay at exactly $0.
+- **Real mode as a private work tool** — OpenAI + live web search on GCP Cloud Run, Oracle A1
+  or a GCP e2-micro, all on **free-tier infrastructure** and reachable only by you (you pay only
+  OpenAI usage, ~$0.004–$0.010 per run). See [DEPLOYMENT.md §8](DEPLOYMENT.md#8-real-mode--privately-on-0-infrastructure).
 
 ## Results (keyless)
 

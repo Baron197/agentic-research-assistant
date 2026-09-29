@@ -13,7 +13,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Project root = three levels up from this file (src/agent/config.py -> repo).
@@ -88,6 +88,19 @@ class Settings(BaseSettings):
     corpus_dir: Path = PROJECT_ROOT / "data" / "corpus"
     traces_dir: Path = PROJECT_ROOT / "runs"
     results_dir: Path = PROJECT_ROOT / "eval" / "results"
+
+    # --- Field normalisation -------------------------------------------------
+    @field_validator("openai_api_key", "search_api_key")
+    @classmethod
+    def _strip_key(cls, v: str) -> str:
+        """Strip surrounding whitespace from API keys.
+
+        Keys arrive via .env files, Secret Manager and shell pipes, which easily
+        add a trailing newline (``echo``) or CRLF (a PowerShell pipe). httpx then
+        rejects the Authorization header outright ("Illegal header value"), so
+        every real-mode call would fail - strip it once, here.
+        """
+        return v.strip()
 
     # --- Cross-field validation ----------------------------------------------
     @model_validator(mode="after")

@@ -1,13 +1,25 @@
+# Keyless by default: the image's ENV selects the fake providers, so a fresh
+# clone runs with no .env at all.
+#
+# REAL mode: put LLM_PROVIDER=openai, SEARCH_PROVIDER=web, FETCH_PROVIDER=http
+# and the keys in a .env next to this file. The api service receives it via
+# env_file below; .env is gitignored and dockerignored, so keys never reach git
+# or the image. (Runtime env vars override the image ENV, which is what flips it.)
+#
+# ARA_BIND chooses the host interface the ports are published on. Default
+# 0.0.0.0 = reachable from the network (fine for the keyless demo). For real mode
+# set ARA_BIND=127.0.0.1 in .env so the app is reachable ONLY through an SSH
+# tunnel — Docker-published ports bypass the host firewall (iptables/ufw), so
+# binding to loopback is the reliable way to keep a paid app private.
 services:
   api:
     build: .
     image: agentic-research-assistant
+    env_file:
+      - path: .env
+        required: false          # a fresh clone has no .env -> keyless
     ports:
-      - "8000:8000"
-    environment:
-      LLM_PROVIDER: fake
-      SEARCH_PROVIDER: fake
-      FETCH_PROVIDER: fake
+      - "${ARA_BIND:-0.0.0.0}:8000:8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
       interval: 10s
@@ -18,8 +30,8 @@ services:
     image: agentic-research-assistant
     command: streamlit run ui/streamlit_app.py --server.port 8501 --server.address 0.0.0.0
     ports:
-      - "8501:8501"
+      - "${ARA_BIND:-0.0.0.0}:8501:8501"
     environment:
-      API_URL: http://api:8000
+      API_URL: http://api:8000   # the UI stays a thin client; only the api holds keys
     depends_on:
       - api

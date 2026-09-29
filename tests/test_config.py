@@ -23,6 +23,15 @@ def test_matched_real_providers_are_accepted():
     assert s.search_provider == "web"
 
 
+def test_api_keys_are_stripped_of_whitespace():
+    # A key stored via `echo` / Secret Manager carries a trailing newline, and a
+    # PowerShell pipe adds CRLF; httpx rejects either as an illegal header value,
+    # which would fail every real-mode call (regression guard for deployments).
+    s = Settings(_env_file=None, openai_api_key="sk-abc\r\n", search_api_key="  tvly-xyz\n")
+    assert s.openai_api_key == "sk-abc"
+    assert s.search_api_key == "tvly-xyz"
+
+
 def test_is_keyless_false_for_dspy_backend():
     # The DSPy backend runs a real, paid LLM even with fake tools; /health must
     # not report such a deployment as keyless (regression).

@@ -36,7 +36,8 @@ can't half-configure it.
 
 ### 0. Get your keys
 - **OpenAI** (both recipes): [platform.openai.com/api-keys](https://platform.openai.com/api-keys) → `sk-...`.
-  Set a **spend limit** in Billing → Limits as a hard safety net.
+  Pay with **prepaid credit and turn auto-recharge OFF** (Settings → Billing) — that is OpenAI's only
+  hard stop. Monthly *budgets* just send alert emails; they don't block requests.
 - **Tavily** (Recipe B only): [app.tavily.com](https://app.tavily.com) → `tvly-...`. Free tier ~1,000 searches/mo.
 
 ### 1. Install the real-mode extras
@@ -162,7 +163,9 @@ run_id=… status=complete iterations=0 tool_calls=17 tokens=25273 usd=$0.0101 l
 - **`OPENAI_MODEL`** — `gpt-4o-mini` is a fraction of a cent per run; reach for `gpt-4o` only on hard topics.
 - **`EVIDENCE_PER_SUBQUESTION` / `TOP_SEARCH_RESULTS`** — depth knobs; more sources ⇒ more tokens.
 - **`MAX_ITERATIONS`** — each critic revise re-runs the writer + critic (more tokens).
-- **OpenAI dashboard spend limit** — the ultimate backstop. Set it.
+- **Prepaid credit with auto-recharge OFF** — the ultimate backstop: you can't spend credit you
+  don't have. (OpenAI's monthly budgets only *alert*; they don't cut requests off, and a cut-off can
+  lag slightly behind a zero balance.)
 - Ballpark (**measured**): a 5-facet live-web run on `gpt-4o-mini` cost **$0.0101** (25,273 tokens).
   A run over a *local* corpus is cheaper (smaller payloads). Tavily searches are free within the tier
   — roughly 3–6 credits per run, so the 1,000/month free allowance is ~200 runs.
@@ -302,14 +305,45 @@ Re-running that exact question against the live web, before vs after:
 
 **The golden rule:** keys are **runtime secrets** — never committed, never baked into an image. The repo
 itself stays keyless and safe to be public; your keys live only in the host's secret store. And note:
-**a public real-mode URL spends _your_ money for anyone who opens it** — so protect it, or keep the public
-demo keyless and run real mode privately.
+**the app has no login of its own, so a public real-mode URL spends _your_ money for anyone who opens
+it** — a real-mode deployment must be private.
+
+### GCP Cloud Run, Oracle Cloud, or a GCP VM → DEPLOYMENT.md §8
+
+The step-by-step recipes live in one place:
+**[DEPLOYMENT.md → §8 Real mode — privately, on $0 infrastructure](DEPLOYMENT.md#8-real-mode--privately-on-0-infrastructure)**.
+All three keep the servers inside the free tiers, so the only bill is your OpenAI usage:
+
+| Option | How you open it | Infra cost | Run history |
+|---|---|---|---|
+| **R1 — GCP Cloud Run** *(recommended)* | `gcloud run services proxy` → `localhost:8501` | $0 in the free tier | resets on scale-to-zero |
+| **R2 — Oracle Ampere A1 VM** | SSH tunnel → `localhost:8501` | $0 (Always Free) | kept |
+| **R3 — GCP e2-micro VM** | SSH tunnel → `localhost:8501` | $0 (Always Free) | kept |
+
+Three things make these work — worth knowing if you deployed an older version:
+- **The Docker image ships the real-mode SDKs** (`openai`, `tavily-python`). They're imported only when a
+  real provider is selected, so one image runs either mode. An image built without them boots fine and
+  then fails its first real run with `No module named 'openai'` — rebuild it.
+- **`docker-compose.yml` passes the VM's `.env` to the API container** (`env_file`). A compose file that
+  sets `LLM_PROVIDER: fake` itself would override your `.env` and keep the app keyless without any error.
+  `ARA_BIND=127.0.0.1` in the `.env` publishes the ports on loopback only, so the app is reachable
+  solely through your SSH tunnel.
+- **A private Cloud Run service can't be opened by visiting its URL.** With
+  `--no-allow-unauthenticated`, a browser sends no identity token, so even the owner gets **403**. Open
+  it through `gcloud run services proxy`, which attaches your credentials (or enable IAP).
 
 ### Option S — Streamlit Community Cloud (single app, easiest)
-The UI runs the pipeline in-process (embedded backend), so real mode is just secrets:
+The UI runs the pipeline in-process (embedded backend), so real mode is two packages plus secrets. It is
+also the **least private** option — a public Streamlit app has no login — so prefer §8 above.
 
-1. Deploy the app as in [DEPLOYMENT.md](DEPLOYMENT.md) (main file `ui/streamlit_app.py`).
-2. App → **Settings → Secrets**, and paste the keys as **top-level** keys (this matters — see below):
+1. Add the real-mode SDKs to `requirements.txt` (they're import-guarded, so the keyless demo and CI are
+   unaffected):
+   ```
+   openai>=1.30,<4
+   tavily-python>=0.3,<1
+   ```
+2. Deploy the app as in [DEPLOYMENT.md](DEPLOYMENT.md) (main file `ui/streamlit_app.py`).
+3. App → **Settings → Secrets**, and paste the keys as **top-level** keys (this matters — see below):
    ```toml
    LLM_PROVIDER = "openai"
    OPENAI_API_KEY = "sk-..."
@@ -322,46 +356,8 @@ The UI runs the pipeline in-process (embedded backend), so real mode is just sec
    > variables (`os.environ`), which is exactly what the app's settings layer reads. Secrets nested
    > under a `[section]` are **only** reachable via `st.secrets`, so they would *not* switch the app to
    > real mode. Keep each key at the top level, no `[section]` header.
-3. **Protect it / mind the cost.** A public Streamlit app has no auth — anyone with the link can run
-   (paid) research. Prefer running real mode **locally**; if you deploy it, keep `TOKEN_BUDGET` low, set
-   an OpenAI spend limit, and restrict viewers (private-app allow-list) rather than leaving it world-open.
-
-### Option A — GCP Cloud Run (inject secrets, require auth)
-Store the key in Secret Manager, inject it as an env var, and require IAM auth so strangers can't spend
-your budget:
-
-```bash
-# store secrets once
-printf 'sk-...'   | gcloud secrets create openai-key  --data-file=-
-printf 'tvly-...' | gcloud secrets create tavily-key  --data-file=-
-
-gcloud run deploy ara-ui \
-  --image "$IMAGE" --region us-central1 --port 8080 --session-affinity \
-  --no-allow-unauthenticated \                     # require IAM auth — protects your $
-  --set-env-vars "LLM_PROVIDER=openai,SEARCH_PROVIDER=web,FETCH_PROVIDER=http,ARA_EMBEDDED=1,TOKEN_BUDGET=40000" \
-  --set-secrets "OPENAI_API_KEY=openai-key:latest,SEARCH_API_KEY=tavily-key:latest" \
-  --command streamlit \
-  --args "run,ui/streamlit_app.py,--server.port=8080,--server.address=0.0.0.0,--server.headless=true,--server.enableCORS=false,--server.enableXsrfProtection=false"
-```
-- The Cloud Run runtime service account needs `roles/secretmanager.secretAccessor`.
-- Grant yourself access with `gcloud run services add-iam-policy-binding ara-ui --region us-central1 --member="user:you@example.com" --role=roles/run.invoker`, or put it behind Identity-Aware Proxy.
-
-### Option C — a VM (Oracle Ampere A1 / GCP e2-micro)
-Put the keys in a `.env` **on the VM** (never in git), then run with docker-compose, and firewall the app
-port to your own IP so it isn't world-open:
-
-```bash
-# on the VM, in the repo dir — .env is gitignored, stays on the box
-cat > .env <<'EOF'
-LLM_PROVIDER=openai
-OPENAI_API_KEY=sk-...
-SEARCH_PROVIDER=web
-SEARCH_API_KEY=tvly-...
-FETCH_PROVIDER=http
-TOKEN_BUDGET=40000
-EOF
-docker compose up -d --build     # the api + ui services read .env
-```
+4. **Restrict who can view it** to your own account in the app's sharing settings, keep `TOKEN_BUDGET`
+   low, and keep OpenAI auto-recharge off. Never leave a real-mode app world-open.
 
 ---
 
@@ -376,6 +372,9 @@ docker compose up -d --build     # the api + ui services read .env
 | Some sources show `fetch failed: … 403 Forbidden` | **Normal.** Many sites (Wikipedia, Medium) block non-browser agents. The run degrades gracefully and uses the sources it could fetch. |
 | A claim quotes navigation junk | `HttpFetch` extraction on JS-heavy pages. `pip install trafilatura` improves it; the writer usually just leaves the junk uncited. |
 | Costs higher than expected | Writer + critic dominate. Lower `MAX_ITERATIONS`, `EVIDENCE_PER_SUBQUESTION`, `TOP_SEARCH_RESULTS`, or `TOKEN_BUDGET`. |
+| Deployed container: `No module named 'openai'` | The image was built before it bundled the real-mode SDKs. Rebuild: `docker compose up -d --build` on a VM, or redeploy with `--source .` on Cloud Run. |
+| Real-mode VM still says `keyless: true` | The `.env` must sit **next to `docker-compose.yml`** (`~/ara/.env`). Check what the API container received — `docker compose exec api env \| grep PROVIDER` — then `docker compose up -d` again. |
+| `Illegal header value b'Bearer sk-…\n'` | A key saved with a trailing newline (`echo`, a PowerShell pipe). The app now strips whitespace from keys, so update to the current code; re-save the secret without the newline if another tool also reads it. |
 
 > ⚠️ **Evaluating in real mode:** `eval/tasks.jsonl` marks `T11` (capital of France) and `T12`
 > (sourdough) as `in_corpus: false` to test **abstention**. Those are only unanswerable *relative to
@@ -386,9 +385,9 @@ docker compose up -d --build     # the api + ui services read .env
 
 ## Security & cost checklist (real mode)
 - [ ] Keys only in the host secret store or a **gitignored `.env`** — never committed, never in the image.
-- [ ] Access **restricted** (IAM / IAP / firewall / private-app allow-list) — a public real-mode URL spends your money for anyone.
+- [ ] Access **private** — Cloud Run with `--no-allow-unauthenticated` (opened via `gcloud run services proxy` or IAP), or a VM with **no open app ports** + `ARA_BIND=127.0.0.1` + an SSH tunnel. A public real-mode URL spends your money for anyone.
 - [ ] `TOKEN_BUDGET` set conservatively; `OPENAI_MODEL=gpt-4o-mini` unless you need more.
-- [ ] OpenAI dashboard **spend limit** set as the hard backstop.
+- [ ] OpenAI on **prepaid credit with auto-recharge OFF** — the only hard stop (budgets only send alerts).
 - [ ] Watch usage: the OpenAI Usage dashboard and the Tavily dashboard.
 
 ## Caveats

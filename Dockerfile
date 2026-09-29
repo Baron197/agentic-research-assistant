@@ -1,4 +1,7 @@
 # Lean runtime image: builds and serves the API, keyless by default.
+# The same image also runs REAL mode — set LLM_PROVIDER / SEARCH_PROVIDER /
+# FETCH_PROVIDER and the keys at RUNTIME (env vars, Secret Manager, or a
+# gitignored .env via docker-compose). Keys are never baked into the image.
 FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1 \
@@ -11,10 +14,16 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # Runtime dependencies only (no ruff/pytest). streamlit is included so the
-# optional UI service in docker-compose can share this image.
+# optional UI service in docker-compose can share this image. openai and
+# tavily-python are the real-mode SDKs: installed so a deployment can switch to
+# real mode with env vars alone, but only IMPORTED when a real provider is
+# selected (lazy imports in llm.py / search.py), so keyless runs never load them.
+# Upper bounds stop a future breaking MAJOR release from reaching a deploy
+# unnoticed; the calls the app makes are verified on openai 2.x and 3.x.
 RUN pip install --no-cache-dir \
     "langgraph>=0.2" "langchain-core>=0.3" "pydantic>=2.5" "pydantic-settings>=2.1" \
-    "fastapi>=0.110" "uvicorn>=0.27" "httpx>=0.27" "streamlit>=1.33"
+    "fastapi>=0.110" "uvicorn>=0.27" "httpx>=0.27" "streamlit>=1.33" \
+    "openai>=1.30,<4" "tavily-python>=0.3,<1"
 
 COPY src ./src
 COPY data ./data
