@@ -1,8 +1,11 @@
 # Agentic Research & Report Assistant
 
+**▶ [Try the live demo](https://agentic-research-assistant-ra3rebpqgkqvyyw5wryrma.streamlit.app/)** — cited research reports right in your browser · keyless mode · no signup.
+
+[![Live demo](https://img.shields.io/badge/Live%20demo-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://agentic-research-assistant-ra3rebpqgkqvyyw5wryrma.streamlit.app/)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
 [![CI](https://github.com/Baron197/agentic-research-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/Baron197/agentic-research-assistant/actions/workflows/ci.yml)
-[![tests](https://img.shields.io/badge/tests-65%20passing-brightgreen.svg)](tests/)
+[![tests](https://img.shields.io/badge/tests-93%20passing-brightgreen.svg)](#testing--ci)
 [![Lint: ruff](https://img.shields.io/badge/lint-ruff-46a2f1.svg)](https://github.com/astral-sh/ruff)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Keyless](https://img.shields.io/badge/runs-keyless%20%240.00-brightgreen.svg)](#quickstart-keyless)
@@ -25,7 +28,7 @@
 - **Parallel research fan-out** — the researcher gathers sources for every sub-question concurrently (a thread pool over the search/fetch I/O) while replaying the URL de-duplication and budget accounting sequentially, so real-mode latency drops to roughly the slowest fetch yet the output stays **deterministic and identical** to a serial run. Report depth is a config knob (`evidence_per_subquestion`).
 - **A no-fabricated-sources guarantee** — `enforce_citations` strips every citation to an ungathered id and drops any claim left with no valid support; proven by a dedicated test.
 - **Guardrails** — schema-validated structured output (validate-and-retry), a hard `max_iterations` cap, and a token/cost budget that ends a run cleanly as `partial`.
-- **Evaluation wired into CI as a gate** — real metrics (no fabricated numbers), an A/B that proves the critic loop improves quality, and a `--min-citation-coverage` gate that fails the build on regression.
+- **Evaluation wired into CI as a gate** — real metrics (no fabricated numbers), a critic ON/OFF A/B, and a `--min-citation-coverage` gate that fails the build on regression. The A/B was also re-run with a real model, where the critic's effect measured ~0 — reported as-is ([see why](#critic-ab--and-what-it-does-not-prove)).
 - **First-class observability** — every run records an ordered trace of steps with tokens, USD cost, and latency; `/metrics` aggregates runs with a nearest-rank p95.
 - **Keyless mode** — `make test`, `make eval`, and the API all work with **no API key**; real mode (OpenAI + a real search provider) is one env var away.
 - **DSPy track (optional)** — the LLM reasoning steps can be swapped for declarative DSPy modules whose prompts are **auto-optimized** against the project's own grounding metric ("programming, not prompting"); import-guarded and off by default.
@@ -98,7 +101,7 @@ make eval-compare         # critic ON vs OFF -> positive delta
 make run Q="What are the trade-offs of different RAG retrieval methods?"
 
 make api                  # FastAPI on http://localhost:8000  (/docs for Swagger)
-make ui                   # Streamlit UI (expects the API running)
+make ui                   # Streamlit UI (uses the API if running, else runs in-process)
 ```
 
 > **No `make`?** (e.g. on Windows) run the underlying commands directly, with
@@ -135,8 +138,8 @@ Then install the real extras (import-guarded, so the keyless path never needs th
 pip install openai tavily-python trafilatura        # trafilatura = cleaner article text
 ```
 
-Cost is low — `gpt-4o-mini` is a fraction of a cent per run and Tavily has a free
-tier. Keep real mode **local** (or on a private host); never put your keys on the
+Cost is low — measured at about **$0.004–$0.010 per run** with `gpt-4o-mini`, and
+Tavily's free tier (1,000 credits/month) covers ~200 runs at 5 searches each. Keep real mode **local** (or on a private host); never put your keys on the
 public demo.
 
 **A real live-web run** (actual output, abridged — question deliberately outside the
@@ -301,9 +304,11 @@ Step-by-step instructions for four free paths are in [**DEPLOYMENT.md**](DEPLOYM
 
 - **Streamlit Community Cloud** — **easiest**: point it at this repo, main file
   `ui/streamlit_app.py`, click Deploy. No Docker, no CLI, no card — the UI runs the
-  pipeline in-process (embedded backend), so it's one self-contained app.
+  pipeline in-process (embedded backend), so it's one self-contained app. This repo's
+  own [live demo](https://agentic-research-assistant-ra3rebpqgkqvyyw5wryrma.streamlit.app/) runs there.
 - **GCP Cloud Run** — a public link with a real separate API that scales to **$0 when idle**.
-- **Oracle Ampere A1** — free **forever** for the full API + UI stack.
+- **GCP e2-micro VM** — the always-free VM running the full API + UI stack (1 GB RAM, so it's tight).
+- **Oracle Ampere A1** — free **forever** for the full API + UI stack, with far more headroom.
 - Guidance for the **GCP $300 free trial**, plus cost guardrails to stay at exactly $0.
 - **Real mode as a private work tool** — OpenAI + live web search on GCP Cloud Run, Oracle A1
   or a GCP e2-micro, all on **free-tier infrastructure** and reachable only by you (you pay only
@@ -313,21 +318,22 @@ Step-by-step instructions for four free paths are in [**DEPLOYMENT.md**](DEPLOYM
 
 All numbers below are **recomputed from real runs** by `make eval` — none are
 hand-written. They validate **structure and plumbing** on the deterministic fake
-path; the one metric that needs a real model (`faithfulness`, LLM-as-judge) is
-import-guarded and reported as `n/a` in keyless mode.
+path. Two limits worth knowing: `support_rate` and `point_coverage` are **lexical**
+(keyword-overlap) proxies, not semantic judgements; and `faithfulness` (LLM-as-judge)
+is **not implemented yet** — only its scaffolding exists — so it reports `n/a`.
 
 | Metric (keyless) | Value | What it checks |
 |---|---|---|
 | `citation_coverage` | **1.00** | % of claims carrying ≥1 citation |
 | `source_validity` | **1.00** | % of citations whose id was actually gathered (the guarantee) |
-| `support_rate` | **1.00** | % of claims whose cited evidence supports them |
+| `support_rate` | **1.00** | % of claims whose cited evidence supports them (keyword-overlap proxy) |
 | `point_coverage` | **0.90** | % of expected key facts present (keyword proxy) |
 | `abstention_accuracy` | **1.00** | abstains correctly on out-of-corpus questions |
 | `avg_tool_calls` | 8.9 | search + fetch calls per run |
 | `avg_tokens` | ~5,340 | deterministic fake-token estimate |
 | `avg_steps` | 14.9 | trace spans per run |
 | `avg_latency_ms` | ~10 (machine-dep.) | offline, in-process |
-| `faithfulness` | n/a | requires a real model + judge |
+| `faithfulness` | n/a | not implemented yet (needs a real model + judge) |
 
 ### Critic A/B — and what it does *not* prove
 
@@ -410,7 +416,7 @@ data/corpus/         11 seed docs (the "web" FakeSearch/FakeFetch operate over)
 eval/
   tasks.jsonl        12 golden tasks (incl. 2 out-of-corpus abstention checks)
   run_eval.py        metrics + critic A/B + CI gate
-tests/               deterministic, keyless end-to-end + unit tests (92; 66 in keyless CI, 26 need optional extras)
+tests/               deterministic, keyless end-to-end + unit tests (93; 67 in keyless CI, 26 need optional extras)
 docs/screenshots/    UI screenshots used in this README
 Dockerfile  docker-compose.yml  .dockerignore  Makefile  pyproject.toml  requirements.txt
 .env.example  .gitattributes  .github/workflows/ci.yml
@@ -419,19 +425,20 @@ README.md  ARCHITECTURE.md  DEPLOYMENT.md  REAL_MODE.md  LICENSE
 
 ## Testing & CI
 
-`make test` runs a fast, deterministic, keyless suite of **92 tests** (graph
+`make test` runs a fast, deterministic, keyless suite of **93 tests** (graph
 end-to-end, no-fabricated-sources, the one-revise critic loop + iteration cap,
 tiny-budget → `partial`, the **parallel researcher fan-out** — proving a
 concurrent run is byte-identical to a serial one — the **depth** knob, the
 **multi-format corpus**, the fake tools, the LRU cache, cost/aggregation, the
-provider-mix + config validation, and the API incl. the `/runs`, `/corpus`,
-`enable_critic` and 422 paths). Twenty-six of them exercise **optional** extras
+provider-mix + config validation (incl. stripping stray whitespace from API keys),
+and the API incl. the `/runs`, `/corpus`, `enable_critic` and 422 paths).
+Twenty-six of them exercise **optional** extras
 (19 the MCP server — including its schemas, its real-mode cost guard, and a
 stdout-purity check that protects the stdio transport — 6 the DSPy backend, 1
 PDF-corpus reading) and do not run unless those extras are installed. So a
-default keyless install, and CI, report **66 passed, 3 skipped** — the three
+default keyless install, and CI, report **67 passed, 3 skipped** — the three
 optional groups skip as whole units — while a machine with the extras present
-runs all **92**, still keyless via fakes / `DummyLM`. CI
+runs all **93**, still keyless via fakes / `DummyLM`. CI
 (`.github/workflows/ci.yml`) runs `ruff check .` → `pytest -q` → the eval gate,
 all keyless with no secrets.
 
@@ -473,9 +480,9 @@ AGENT_BACKEND=dspy make eval-compare-backends   # manual vs DSPy lift
 **Honesty note.** DSPy metrics are **real-LLM** results, reported separately from
 the keyless baseline; the optimizer never runs in the default CI gate. With DSPy
 installed, `tests/test_dspy.py` still runs **keyless** via DSPy's `DummyLM` (no key)
-and asserts the no-fabricated-sources guarantee holds for the DSPy backend too. The
-headline to fill in after running `make optimize` on your key: *"DSPy optimization
-raised citation_coverage / grounding from X to Y automatically."*
+and asserts the no-fabricated-sources guarantee holds for the DSPy backend too.
+**The optimizer has not yet been run against a real model, so no DSPy lift is
+claimed here** — the track is shipped and tested, but its benefit is unmeasured.
 
 > Caveat: DSPy configures its LM via process-global state, so serving the API
 > with `AGENT_BACKEND=dspy` under concurrency is not recommended; the keyless

@@ -211,11 +211,16 @@ git clone https://github.com/Baron197/agentic-research-assistant.git ~/ara
 
 # install Docker (engine + compose plugin) via the official convenience script
 curl -fsSL https://get.docker.com | sudo sh
-sudo usermod -aG docker $USER && newgrp docker
+sudo usermod -aG docker $USER
 
 # e2-micro has only 1 GB RAM — add 1 GB swap so the build/UI don't OOM
 sudo fallocate -l 1G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+exit      # log out so the docker group applies on your next login
+```
 
+SSH back in (`gcloud compute ssh ara-vm --zone us-central1-a`) and start it:
+
+```bash
 cd ~/ara
 docker compose up -d --build          # builds the image, starts api + ui (keyless: no .env)
 docker compose ps
@@ -238,12 +243,26 @@ Open **`http://EXTERNAL_IP:8501`** (find the IP with `gcloud compute instances l
 The most generous free option: an **Arm Ampere A1 with 2 OCPU / 12 GB RAM**, free forever.
 Runs the full stack comfortably.
 
-**1. Create the instance (Console → Compute → Instances → Create)**
-- **Shape:** *Ampere* → `VM.Standard.A1.Flex`, set **2 OCPUs / 12 GB** (the free cap).
-- **Image:** Ubuntu 22.04 (or Oracle Linux). The image `python:3.11-slim` is multi-arch, so
-  it builds natively on Arm — nothing special needed.
-- **Networking:** assign a public IPv4; save the SSH key.
-- If you see *"Out of host capacity"*, retry, or pick a different Availability Domain / region.
+**0. Create your Oracle Cloud account** (once). Sign up for the **Free Tier** at
+[oracle.com/cloud/free](https://www.oracle.com/cloud/free/). It asks for a card to verify your
+identity; Always-Free resources aren't charged unless you upgrade. **Choose your home region
+carefully — it can't be changed later**, and Always-Free compute runs only there, so pick the one
+closest to you. Provisioning the account can take a few minutes.
+
+**1. Create the instance (Console → Compute → Instances → Create instance)**
+- **Name:** e.g. `ara-vm`.
+- **Image and shape → Change shape → Ampere →** `VM.Standard.A1.Flex`, set **2 OCPUs / 12 GB**
+  (the free cap). The shape should be marked *Always Free-eligible*.
+- **Change image → Canonical Ubuntu 22.04.** With an Ampere shape you need the **aarch64 (Arm)**
+  build; if the Console says the image isn't compatible, re-select Ubuntu *after* choosing the shape.
+  (The app's base image `python:3.11-slim` is multi-arch and every dependency ships Arm wheels, so it
+  builds natively — nothing special needed.)
+- **Networking:** keep the default VCN / public subnet and **Assign a public IPv4 address**.
+- **Add SSH keys → Generate a key pair for me → Save private key.** Keep the downloaded `.key` file
+  safe (e.g. in `C:\Users\you\.ssh\`) — it can't be downloaded again. The login user is `ubuntu`.
+- **Boot volume:** the default (~47 GB) fits inside the 200 GB free allowance.
+- If you see *"Out of host capacity"*, retry later or pick a different Availability Domain — free
+  A1 capacity is often tight (see [§8 R2](#r2--oracle-cloud-ampere-a1-vm--ssh-tunnel) on Pay As You Go).
 
 **2. Open the ports — Oracle needs BOTH the cloud firewall AND the OS firewall**
 *(keyless demo only — for real mode, skip this step entirely; see [§8](#8-real-mode--privately-on-0-infrastructure))*:
@@ -275,7 +294,13 @@ sudo apt-get update && sudo apt-get install -y git
 git clone https://github.com/Baron197/agentic-research-assistant.git ~/ara
 
 curl -fsSL https://get.docker.com | sudo sh          # engine + compose plugin
-sudo usermod -aG docker $USER && newgrp docker
+sudo usermod -aG docker $USER
+exit                                                 # log out so the docker group applies
+```
+
+SSH back in and start it:
+
+```bash
 cd ~/ara
 docker compose up -d --build                         # keyless: no .env on the VM
 ```
@@ -380,6 +405,9 @@ OpenAI usage (plus Tavily beyond its free plan). Three options — pick one.
 - **Tavily:** the free plan (1,000 credits/month) needs no card — key from app.tavily.com.
 - **`TOKEN_BUDGET`** (e.g. `40000`) caps tokens per run inside the app; runs that hit it end
   `partial` instead of spending more.
+- **One OpenAI key per deployment.** Create a separate key for each place you deploy (e.g. named
+  `ara-cloudrun`, `ara-oracle`) so you can revoke one without breaking the others, and see which
+  deployment is spending.
 
 | | **R1 — GCP Cloud Run** | **R2 — Oracle A1 VM** | **R3 — GCP e2-micro VM** |
 |---|---|---|---|
@@ -399,12 +427,25 @@ One Cloud Run service runs the whole app — the Streamlit UI with the **embedde
 service **rejects unauthenticated requests**, and you open it through `gcloud run services proxy`,
 which attaches your Google identity. Works from any machine where you're logged in to `gcloud`.
 
-Run these from the repo root — in **Cloud Shell** (browser terminal with `gcloud` + `git`
-preinstalled; `git clone` the repo there) or a local bash.
+**Where to run the commands.** Steps 1–4 are **bash**. Run them in **Cloud Shell** — the
+`>_` icon at the top of the Google Cloud Console opens a browser terminal with `gcloud` and `git`
+preinstalled, already signed in as your Console account. On Windows this is the way to go: PowerShell
+can't run bash syntax, and Git Bash often can't start `gcloud` (*"Python was not found"*). Only
+Step 5 runs on your own laptop.
+
+**0. A project with billing, and the right Google account.** Use the Google account that has the
+open billing account (the trial, or a paid one). Console → project picker → **New project** → give
+it a name and pick that **billing account** — a project without billing fails at Step 1. Note the
+**project ID** it shows (e.g. `agentic-research-123456`); it's your `YOUR_PROJECT_ID` below.
+Then, in Cloud Shell:
+```bash
+git clone https://github.com/Baron197/agentic-research-assistant.git
+cd agentic-research-assistant
+gcloud config set project YOUR_PROJECT_ID
+```
 
 **1. Enable the APIs and let Cloud Build build**
 ```bash
-gcloud config set project YOUR_PROJECT_ID
 gcloud services enable run.googleapis.com cloudbuild.googleapis.com \
   artifactregistry.googleapis.com secretmanager.googleapis.com compute.googleapis.com
 
@@ -425,8 +466,11 @@ read -rs KEY && printf '%s' "$KEY" | gcloud secrets create tavily-key --data-fil
 for this: they append a newline (the app strips surrounding whitespace from keys, but other tools
 won't).
 
-**3. Let the service read the secrets**
+**3. Let the service read the secrets** (the first two lines recompute `SA`, so this still works
+if Cloud Shell reconnected while you were adding the keys):
 ```bash
+PROJECT_NUMBER=$(gcloud projects describe "$(gcloud config get-value project)" --format='value(projectNumber)')
+SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 for s in openai-key tavily-key; do
   gcloud secrets add-iam-policy-binding "$s" \
     --member="serviceAccount:${SA}" --role=roles/secretmanager.secretAccessor
@@ -454,14 +498,17 @@ Why these flags:
 - `--timeout 3600` — Streamlit keeps a websocket open; the 300 s default would cut it every 5 minutes.
 - `--memory 1Gi` — free-tier *vCPU*-seconds run out long before GiB-seconds do, so the extra memory costs nothing.
 
-**5. Open it — from your laptop** (needs the [gcloud CLI](https://cloud.google.com/sdk/docs/install),
-logged in with `gcloud auth login`):
+**5. Open it — from your laptop** (needs the [gcloud CLI](https://cloud.google.com/sdk/docs/install);
+on Windows run this in **PowerShell**). Your laptop's `gcloud` has its own settings, separate from
+Cloud Shell, so name the account and project explicitly:
 ```bash
-gcloud run services proxy ara-real --region us-central1 --port 8501
+gcloud auth login                  # once — sign in as the account that owns the project
+gcloud run services proxy ara-real --region us-central1 --port 8501 --project YOUR_PROJECT_ID
 ```
 Leave that running and open **http://localhost:8501**. The sidebar chip should read
 `keyless=False`. `Ctrl+C` closes it. As the project owner you already hold `run.invoker`; to let
-someone else in, grant them `roles/run.invoker` on the service.
+someone else in, grant them `roles/run.invoker` on the service. (If you have several Google accounts
+in `gcloud`, `gcloud auth list` shows which is active; add `--account you@gmail.com` to pick one.)
 
 > **Open tabs cost free-tier time.** A Streamlit tab keeps a websocket open, and Cloud Run counts
 > an open websocket as an active request. The free tier's 180,000 vCPU-seconds ≈ **50 hours** of an
@@ -491,12 +538,19 @@ step 1 (Ubuntu, `VM.Standard.A1.Flex`, 2 OCPU / 12 GB) — but **skip Option C s
 don't add Security List rules for 8000/8501 and don't touch iptables. The default Security List
 only allows SSH (port 22), which is all the tunnel needs.
 
-**2. On the VM — install Docker and get the code:**
+**2. On the VM — install Docker.** Connect first (Windows PowerShell has `ssh` built in):
+`ssh -i C:\path\to\your_oracle.key ubuntu@PUBLIC_IP`
 ```bash
 sudo apt-get update && sudo apt-get install -y git
 curl -fsSL https://get.docker.com | sudo sh
-sudo usermod -aG docker $USER && newgrp docker
+sudo usermod -aG docker $USER
+exit
+```
+The `exit` is deliberate: **SSH back in** so your user picks up the `docker` group (more reliable
+than `newgrp`, which opens a sub-shell that can swallow the rest of a paste). Then get the code:
+```bash
 git clone https://github.com/Baron197/agentic-research-assistant.git ~/ara && cd ~/ara
+docker compose version        # must be v2.24 or newer (needed for env_file's "required:")
 ```
 
 **Then create the `.env` with your keys** — run `nano .env`, paste this, and save with
@@ -638,6 +692,10 @@ keys** in the OpenAI and Tavily dashboards and create new ones for the next depl
 | Real-mode container: `No module named 'openai'` | The image predates the bundled real-mode SDKs — rebuild (`docker compose up -d --build`, or redeploy with `--source .`). |
 | compose rejects `env_file` with `path:` / `required:` | Docker Compose older than v2.24. Update Docker (`curl -fsSL https://get.docker.com \| sudo sh`). |
 | Oracle VM stopped or vanished after a quiet week | Idle reclamation of Always-Free compute — see [§8 R2](#r2--oracle-cloud-ampere-a1-vm--ssh-tunnel): upgrade to Pay As You Go, or recreate it from the repo. |
+| `gcloud run services proxy`: *could not find* / *not found* service `ara-real` | Your laptop's `gcloud` is pointing at another project (its default). Add `--project YOUR_PROJECT_ID` (and `--account` if you have several Google accounts). |
+| Console: *You need additional access* / *permission denied* on the project | Your browser is signed in with a different Google account. Switch accounts (avatar, top right) to the one that owns the project. |
+| Windows Git Bash: `gcloud` → *Python was not found* | Git Bash picks a launcher that looks for a system Python. Run `gcloud` from **PowerShell** (or use Cloud Shell for the bash steps). |
+| Oracle: *image is not compatible with the selected shape* | Choose the **Ampere** shape first, then re-select Ubuntu so the Console picks the **aarch64** build. |
 
 ---
 
