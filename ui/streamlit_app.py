@@ -82,6 +82,18 @@ ss.setdefault("detail", None)
 ss.setdefault("compare", None)
 ss.setdefault("error", None)
 ss.setdefault("dark", False)
+# Run settings shared by the pages. Their defaults live here, not on the widgets:
+# a widget given both a value= and a Session State value shows a warning.
+ss.setdefault("max_iter", 2)
+ss.setdefault("budget", 60_000)
+ss.setdefault("critic", True)
+ss.setdefault("approval", False)
+# Streamlit discards a widget's value when the next page doesn't render that same
+# widget, so switching Research -> Critic A/B emptied the question and reset the
+# run settings. Re-assigning the keys on every run keeps them as plain session
+# state that survives page switches (Streamlit's documented pattern).
+for _key in ("q", "max_iter", "budget", "critic", "approval"):
+    ss[_key] = ss[_key]
 
 
 def _theme_css(dark: bool) -> str:
@@ -500,14 +512,14 @@ def sidebar_health() -> None:
 def settings_sidebar(show_critic: bool = True) -> None:
     with st.sidebar:
         st.header("Run settings")
-        st.slider("Max critic iterations", 0, 5, 2, key="max_iter")
-        st.number_input("Token budget", min_value=100, max_value=500_000, value=60_000,
+        st.slider("Max critic iterations", 0, 5, key="max_iter")
+        st.number_input("Token budget", min_value=100, max_value=500_000,
                         step=1_000, key="budget")
         if show_critic:
-            st.toggle("Enable verifying critic", value=True, key="critic",
+            st.toggle("Enable verifying critic", key="critic",
                       help="OFF = the critic-OFF arm of the A/B: the keyless writer's "
                            "planted uncited claim survives, so coverage drops.")
-        st.checkbox("Require human approval", value=False, key="approval",
+        st.checkbox("Require human approval", key="approval",
                     help="Over the HTTP API there is no interactive approver, so runs "
                          "auto-approve (an approval step still appears in the trace). A "
                          "real deny is only possible via the Python API's approval_fn.")
