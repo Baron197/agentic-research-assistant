@@ -12,7 +12,7 @@
 
 > A multi-agent **Research & Report Assistant** orchestrated with **LangGraph**: it
 > plans research, gathers evidence with tools, drafts a structured report, and a
-> **critic verifies every claim against a cited source** — looping back to re-draft
+> **critic checks each claim against its cited evidence** — looping back to re-draft
 > without the rejected claims when a claim is unsupported. It runs **fully keyless**
 > (deterministic fake providers, zero cost)
 > and it is **structurally impossible** for the final report to cite a source that
@@ -101,7 +101,7 @@ pip install -r requirements.txt
 make test                 # deterministic, keyless -> all green
 make lint                 # ruff -> clean
 make eval                 # prints citation_coverage, source_validity, etc.
-make eval-compare         # critic ON vs OFF -> positive delta
+make eval-compare         # critic ON vs OFF -> +0.17 keyless (by construction; see caveat)
 make run Q="What are the trade-offs of different RAG retrieval methods?"
 
 make api                  # FastAPI on http://localhost:8000  (/docs for Swagger)
@@ -221,7 +221,9 @@ Five pages (native `st.navigation`, shared state across pages):
   retrieved), *Step timeline* (a colour-coded per-node trace), *Agent graph*, and
   *Run data*.
 - **Critic A/B** — one click runs the same question with the critic **ON and OFF** and
-  shows the citation-coverage / support delta side by side — the headline result, live.
+  shows the citation-coverage / support delta side by side — a live demonstration of the
+  removal mechanism (keyless +0.17 is by construction; ~0 with a real model —
+  [see the caveat](#critic-ab--and-what-it-does-not-prove)).
 - **History** — a browsable table of past runs; reopen any into all six tabs.
 - **Observability** — the aggregate dashboard (total runs, avg cost, avg/p95 latency,
   avg coverage) fed by `GET /metrics`.

@@ -2,10 +2,11 @@
 
 All metrics below are computed on the **keyless** deterministic path, so they
 validate *structure and plumbing* — citation discipline, source validity, the
-critic's effect — not human-judged answer quality. The single metric that
-genuinely needs a real model (``faithfulness``, LLM-as-judge) is import-guarded
-and reported as ``n/a`` unless real mode is configured. We never fabricate
-numbers; everything here is recomputed from real runs.
+critic's effect — not human-judged answer quality. The one metric that would
+need a real model (``faithfulness``, LLM-as-judge) is not implemented yet: only
+its import-guarded scaffold exists, so it is reported as ``n/a`` or ``not-run``,
+never as a number. We never fabricate numbers; everything here is recomputed
+from real runs.
 
 Usage:
     python -m eval.run_eval                         # single mode -> metrics.{json,md}
@@ -116,14 +117,14 @@ def evaluate_single(tasks: list[dict[str, Any]], settings: Settings) -> dict[str
 
 
 def _faithfulness(settings: Settings) -> str:
-    """LLM-as-judge faithfulness — only meaningful in real mode (import-guarded)."""
+    """LLM-as-judge faithfulness — not implemented yet; only this scaffold exists."""
     if settings.llm_provider != "openai":
-        return "n/a (keyless; requires real model + judge)"
+        return "n/a (not implemented yet)"
     try:  # pragma: no cover - real path
         import openai  # noqa: F401
     except Exception:  # pragma: no cover
         return "n/a (openai not installed)"
-    return "not-run (enable a judge to compute)"  # pragma: no cover
+    return "not-run (not implemented yet)"  # pragma: no cover
 
 
 # --- compare (A/B) mode -----------------------------------------------------
@@ -160,7 +161,7 @@ def render_single_md(report: dict[str, Any]) -> str:
     agg = report["aggregate"]
     lines = ["# Evaluation Results (keyless)\n",
              "_All metrics validate structure/plumbing on the deterministic fake "
-             "path. `faithfulness` requires a real model._\n",
+             "path. `faithfulness` (LLM-as-judge) is not implemented yet._\n",
              "## Aggregate\n",
              "| metric | value |", "|---|---|"]
     for k in ["n_tasks", "n_in_corpus", "citation_coverage", "source_validity",

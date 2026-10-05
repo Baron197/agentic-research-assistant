@@ -2,7 +2,9 @@
 # Runtime dependencies for the KEYLESS path (graph, tools, API, tests, CI).
 # Nothing here requires an API key or network access at runtime.
 # ---------------------------------------------------------------------------
-langgraph>=0.2
+# Major-version caps (langgraph, streamlit): the live demo reinstalls the newest
+# releases on every deploy, so a breaking 2.0 must not slip in unreviewed.
+langgraph>=0.2,<2
 langchain-core>=0.3
 pydantic>=2.5
 pydantic-settings>=2.1
@@ -11,7 +13,7 @@ uvicorn>=0.27
 httpx>=0.27
 
 # UI (thin Streamlit client). Not imported by the test suite.
-streamlit>=1.33
+streamlit>=1.33,<2
 
 # Dev / CI tooling.
 ruff>=0.4

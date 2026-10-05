@@ -318,7 +318,7 @@ def run_research() -> None:
 
 
 def run_compare() -> None:
-    """Run the same question with the critic ON and OFF — the headline A/B, live."""
+    """Run the same question with the critic ON and OFF — a live demo of the removal mechanism."""
     with st.spinner("Running the critic ON and OFF…"):
         on, err_on = _post_research({**_base_payload(), "enable_critic": True})
         off, err_off = _post_research({**_base_payload(), "enable_critic": False})
@@ -505,8 +505,8 @@ def settings_sidebar(show_critic: bool = True) -> None:
                         step=1_000, key="budget")
         if show_critic:
             st.toggle("Enable verifying critic", value=True, key="critic",
-                      help="The headline agent. OFF = the critic-OFF arm of the A/B: "
-                           "deliberately uncited claims survive, so coverage drops.")
+                      help="OFF = the critic-OFF arm of the A/B: the keyless writer's "
+                           "planted uncited claim survives, so coverage drops.")
         st.checkbox("Require human approval", value=False, key="approval",
                     help="Over the HTTP API there is no interactive approver, so runs "
                          "auto-approve (an approval step still appears in the trace). A "
@@ -708,14 +708,16 @@ def page_research() -> None:
         render_result(ss.result, ss.detail or {})
     else:
         st.info("Enter a question (or pick an example) and click **Run research**. "
-                "To see the critic's impact, open the **Critic A/B** page in the sidebar.")
+                "To see the critic remove a planted uncited claim, open the **Critic A/B** "
+                "page in the sidebar.")
 
 
 def page_compare() -> None:
     settings_sidebar(show_critic=False)
     hero("Critic A/B",
-         "Run the same question with the verifying critic <b>on</b> and <b>off</b>, "
-         "side by side — the project's headline result, live.")
+         "Run the same question with the critic <b>on</b> and <b>off</b>, side by "
+         "side — a live demonstration of the claim-removal mechanism (keyless mode "
+         "plants one uncited claim for the critic to catch).")
     st.text_input("Research question", key="q")
     st.button("Run A/B comparison", type="primary", on_click=run_compare,
               use_container_width=True)
@@ -844,7 +846,8 @@ def page_guide() -> None:
                 "It answers a research question **using only documents it actually "
                 "retrieved**. Instead of guessing, five cooperating agents plan the "
                 "research, gather evidence with tools, draft a report that cites "
-                "**only** what was gathered, and a **critic verifies every claim** — "
+                "**only** what was gathered, and a **critic checks each claim against its "
+                "cited evidence** — "
                 "abstaining honestly when the answer isn't in the corpus. That's "
                 "*agentic Retrieval-Augmented Generation (RAG)*.\n\n"
                 "### Your first question in four steps\n"
@@ -858,7 +861,7 @@ def page_guide() -> None:
                 "they came from.\n"
                 "4. Explore the numbers: **Observability** shows how the system is "
                 "*running* (cost, latency, tokens); the **Evaluation metrics** tab "
-                "here explains how *good* the grounded answers are.\n\n"
+                "here explains what each quality metric measures.\n\n"
                 "### The pages\n"
                 "- **Research** — ask a question and read the cited report (six "
                 "result tabs).\n"
@@ -947,20 +950,24 @@ def page_guide() -> None:
             "| **citation_coverage** | % of claims carrying ≥1 citation | 1.00 |\n"
             "| **source_validity** | % of citations whose id was *actually gathered* "
             "— catches fabrication | 1.00 |\n"
-            "| **support_rate** | % of claims whose cited snippet actually supports "
-            "them (keyword overlap ≥ 0.3) | 1.00 |\n"
+            "| **support_rate** | % of claims whose cited snippet supports them by "
+            "keyword overlap (≥ 0.3) — a lexical proxy, not a semantic check | 1.00 |\n"
             "| **point_coverage** | % of each task's expected key facts present in the "
             "report | 0.90 |\n"
             "| **abstention_accuracy** | out-of-corpus questions must produce zero "
             "claims | 1.00 |\n"
-            "| **faithfulness** | LLM-as-judge; needs a real model, so reported `n/a` "
-            "in keyless mode (never faked) | n/a |\n\n"
-            "### The critic A/B (the headline result)\n"
-            "Running the same tasks with the **critic ON vs OFF** isolates the "
-            "critic's contribution: with it OFF, deliberately-uncited claims survive, "
-            "so **citation coverage and support rate each drop by ~0.17**. Try it live "
-            "on the **Critic A/B** page. `source_validity` stays 1.0 in *both* arms — "
-            "the no-fabrication guarantee is always on, independent of the critic."
+            "| **faithfulness** | LLM-as-judge — **not implemented yet** (only its "
+            "scaffolding exists), so it is never reported as a number | n/a |\n\n"
+            "### The critic A/B — what it shows, and what it doesn't\n"
+            "Running the same tasks with the **critic ON vs OFF** shows the removal "
+            "mechanism working: in keyless mode the fake writer deliberately adds one "
+            "uncited claim, so with the critic OFF it survives and **citation coverage "
+            "and support rate each drop by ~0.17**. That delta is **by construction** — "
+            "it proves the mechanism, not that a critic improves a real model. Re-run "
+            "with a real model (3 repeats), the effect measured **~0** (+0.004 ± 0.007): "
+            "a real writer cites what it says. Try it live on the **Critic A/B** page. "
+            "`source_validity` stays 1.0 in *both* arms — the no-fabrication guarantee "
+            "is always on, independent of the critic."
         )
 
     with t_concepts:
@@ -978,7 +985,8 @@ def page_guide() -> None:
             "| **Critic / reflection loop** | the agent that checks each claim against "
             "its cited evidence and triggers a re-draft |\n"
             "| **The guarantee** | `enforce_citations` strips any citation to an "
-            "ungathered id and drops unsupported claims — fabricated sources are "
+            "ungathered id and drops any claim left with no valid citation — "
+            "fabricated sources are "
             "*structurally impossible* |\n"
             "| **Keyless mode** | deterministic fake LLM/search/fetch; offline, "
             "reproducible, $0.00 (the default) |\n"

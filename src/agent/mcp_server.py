@@ -76,9 +76,9 @@ KEYLESS_OVERRIDES: dict[str, Any] = {
 # means, before it has looked at any individual tool.
 INSTRUCTIONS = """\
 Multi-agent research assistant. Given a question, it plans sub-questions,
-gathers evidence with tools, drafts a report, has a critic verify every claim,
-and returns Markdown in which each claim carries a [n] citation to a source that
-was actually retrieved.
+gathers evidence with tools, drafts a report, has a critic check each claim
+against its cited evidence, and returns Markdown in which each claim carries a
+[n] citation to a source that was actually retrieved.
 
 Citations cannot be fabricated: any citation to a source that was not gathered
 is stripped, and a claim left with none is dropped. An empty or near-empty
