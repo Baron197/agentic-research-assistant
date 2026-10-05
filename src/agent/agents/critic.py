@@ -34,7 +34,7 @@ def critic(state: dict[str, Any], ctx: AgentContext) -> dict[str, Any]:
             parse_critique,
         )
         sp.tokens = resp.tokens
-        sp.usd = ctx.tracer.cost(resp.tokens)
+        sp.usd = ctx.tracer.cost(resp)
         sp.input_summary = f"{len(draft.all_claims())} claims"
         sp.output_summary = f"verdict={critique.verdict}, unsupported={len(critique.unsupported)}"
 

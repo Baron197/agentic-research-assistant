@@ -24,8 +24,9 @@ def structured_call(
     one place that owns it) while capturing the raw response so the caller can
     still read token usage. The fake LLM is deterministic and always valid (passes
     first try); the retry budget exists for the real model's occasional bad JSON.
-    Tokens from *failed* attempts were still spent, so they are summed into the
-    returned response — the budget must see everything the run actually consumed.
+    Tokens from *failed* attempts were still spent (and billed), so they are summed
+    into the returned response — the budget and the cost must see everything the
+    run actually consumed.
     """
     responses: list[LLMResponse] = []
 
@@ -37,7 +38,13 @@ def structured_call(
     parsed = validate_and_retry(call, parser, retries=retries)
     last = responses[-1]
     if len(responses) > 1:
-        last = LLMResponse(content=last.content, tokens=sum(r.tokens for r in responses))
+        last = LLMResponse(
+            content=last.content,
+            tokens=sum(r.tokens for r in responses),
+            input_tokens=sum(r.input_tokens for r in responses),
+            output_tokens=sum(r.output_tokens for r in responses),
+            cached_input_tokens=sum(r.cached_input_tokens for r in responses),
+        )
     return parsed, last
 
 

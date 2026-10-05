@@ -167,9 +167,9 @@ def researcher(state: dict[str, Any], ctx: AgentContext) -> dict[str, Any]:
                 else:
                     results = []
                     sp.output_summary = f"search failed: {res.error if res else 'no result'}"[:200]
-                cost_tokens = approx_tokens(query)
-                sp.tokens = cost_tokens
-                sp.usd = ctx.tracer.cost(cost_tokens)
+                # Tool steps charge estimated tokens to the budget but no USD: the
+                # LLM provider bills this text as input when the writer/critic read it.
+                sp.tokens = approx_tokens(query)
             budget = budget.charge(sp.tokens, sp.usd)
             tool_calls += 1
             steps.append(sp.to_step())
@@ -202,7 +202,6 @@ def researcher(state: dict[str, Any], ctx: AgentContext) -> dict[str, Any]:
                             snippet = snippet[:MAX_SNIPPET_CHARS].rstrip() + "..."
                         fp.tokens = approx_tokens(snippet)
                         fp.output_summary = snippet[:80]
-                    fp.usd = ctx.tracer.cost(fp.tokens)
                 budget = budget.charge(fp.tokens, fp.usd)
                 tool_calls += 1
                 steps.append(fp.to_step())

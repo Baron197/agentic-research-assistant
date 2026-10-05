@@ -2,13 +2,70 @@
 
 from __future__ import annotations
 
-from agent.observability import aggregate, cost_usd
+import sys
+import types
+
+import pytest
+
+from agent.llm import LLMRequest, LLMResponse, OpenAILLM
+from agent.observability import Tracer, aggregate, cost_usd
+from tests.conftest import QUESTION
 
 
-def test_cost_usd_uses_price_table():
-    assert cost_usd("gpt-4o-mini", 1000) == 0.0004
-    assert cost_usd("gpt-4o", 1000) == 0.005
-    assert cost_usd("fake-llm", 999999) == 0.0  # keyless is free
+def test_cost_usd_prices_input_and_output_separately():
+    # List prices per 1M tokens — gpt-4o-mini: $0.15 input, $0.075 cached, $0.60 output.
+    assert cost_usd("gpt-4o-mini", 1_000_000) == 0.15
+    assert cost_usd("gpt-4o-mini", 0, 1_000_000) == 0.60
+    assert cost_usd("gpt-4o-mini", 1_000_000, cached_input_tokens=1_000_000) == 0.075
+    assert cost_usd("gpt-4o", 1_000_000, 1_000_000) == 12.5
+    assert cost_usd("fake-llm", 999_999, 999_999) == 0.0  # keyless is free
+
+
+def test_tracer_prices_a_response_by_its_split():
+    tracer = Tracer(model="gpt-4o-mini")
+    split = LLMResponse(content={}, tokens=1_000, input_tokens=800, output_tokens=200)
+    assert tracer.cost(split) == cost_usd("gpt-4o-mini", 800, 200) == 0.00024
+    # No split reported: priced as all input, never as the pricier output.
+    assert tracer.cost(LLMResponse(content={}, tokens=1_000)) == 0.00015
+
+
+def test_only_llm_calls_are_priced(settings, monkeypatch):
+    # Price the fake LLM's estimated usage as if it were gpt-4o-mini.
+    from agent import runner
+
+    monkeypatch.setattr(runner, "_tracer_model", lambda _settings: "gpt-4o-mini")
+    result = runner.run(QUESTION, settings=settings, persist=False)
+
+    tool_steps = [s for s in result.trace if s.tool]
+    llm_steps = [s for s in result.trace if s.node in ("planner", "writer", "critic")]
+    assert tool_steps and all(s.usd == 0.0 and s.tokens > 0 for s in tool_steps)
+    assert llm_steps and all(s.usd > 0.0 for s in llm_steps)
+    assert result.usd == pytest.approx(sum(s.usd for s in llm_steps))
+
+
+def test_openai_llm_reads_the_providers_usage_split(monkeypatch):
+    # A stand-in ``openai`` module, so the test needs neither the SDK nor a key.
+    usage = types.SimpleNamespace(
+        prompt_tokens=900, completion_tokens=100, total_tokens=1_000,
+        prompt_tokens_details=types.SimpleNamespace(cached_tokens=400),
+    )
+    message = types.SimpleNamespace(content='{"sub_questions": []}')
+    completion = types.SimpleNamespace(choices=[types.SimpleNamespace(message=message)],
+                                       usage=usage)
+
+    class StubClient:
+        def __init__(self, api_key: str) -> None:
+            self.chat = types.SimpleNamespace(
+                completions=types.SimpleNamespace(create=lambda **_: completion))
+
+    stub = types.ModuleType("openai")
+    stub.OpenAI = StubClient
+    monkeypatch.setitem(sys.modules, "openai", stub)
+
+    resp = OpenAILLM(api_key="test", model="gpt-4o-mini").generate(
+        LLMRequest(role="planner", payload={"question": "q"}))
+    assert (resp.tokens, resp.input_tokens, resp.output_tokens, resp.cached_input_tokens) == (
+        1_000, 900, 100, 400)
 
 
 def test_aggregate_handles_torn_line_and_p95(tmp_path):

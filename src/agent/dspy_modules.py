@@ -23,7 +23,14 @@ from pathlib import Path
 from typing import Any
 
 from .config import Settings
-from .llm import ROLE_CRITIC, ROLE_PLANNER, ROLE_WRITER, LLMRequest, LLMResponse, _count
+from .llm import (
+    ROLE_CRITIC,
+    ROLE_PLANNER,
+    ROLE_WRITER,
+    LLMRequest,
+    LLMResponse,
+    _estimated_response,
+)
 from .textutil import content_words
 
 
@@ -176,7 +183,7 @@ class DSPyLLM:
             content = self._critique(request.payload)
         else:  # pragma: no cover - defensive
             raise ValueError(f"DSPyLLM has no module for role {request.role!r}")
-        return LLMResponse(content=content, tokens=_count(request.payload, content))
+        return _estimated_response(request.payload, content)
 
     # -- role dispatch -----------------------------------------------------
     def _plan(self, payload: dict[str, Any]) -> dict[str, Any]:

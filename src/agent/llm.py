@@ -39,10 +39,20 @@ class LLMRequest:
 
 @dataclass(frozen=True)
 class LLMResponse:
-    """A role-shaped ``content`` dict plus the tokens the call "used"."""
+    """A role-shaped ``content`` dict plus the tokens the call "used".
+
+    ``tokens`` is the total the budget is charged. ``input_tokens`` and
+    ``output_tokens`` split it for pricing, because output costs ~4x input;
+    ``cached_input_tokens`` is the part of the input the provider served from
+    its prompt cache, billed at a discount. A response without a split is
+    priced as all input.
+    """
 
     content: dict[str, Any]
     tokens: int
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cached_input_tokens: int = 0
 
 
 @runtime_checkable
@@ -69,6 +79,14 @@ def _count(payload: dict[str, Any], content: dict[str, Any]) -> int:
     return approx_tokens(blob)
 
 
+def _estimated_response(payload: dict[str, Any], content: dict[str, Any]) -> LLMResponse:
+    """An ``LLMResponse`` whose usage is estimated: the request is input, the content output."""
+    total = _count(payload, content)
+    output = min(total, approx_tokens(json.dumps(content, sort_keys=True, default=str)))
+    return LLMResponse(content=content, tokens=total, input_tokens=total - output,
+                       output_tokens=output)
+
+
 class FakeLLM:
     """Deterministic, rule-based LLM. Same input -> same output, zero cost."""
 
@@ -83,7 +101,7 @@ class FakeLLM:
             content = self._critique(request.payload)
         else:  # pragma: no cover - defensive
             raise ValueError(f"FakeLLM has no rule for role {request.role!r}")
-        return LLMResponse(content=content, tokens=_count(request.payload, content))
+        return _estimated_response(request.payload, content)
 
     # -- planner ----------------------------------------------------------
     def _plan(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -209,7 +227,7 @@ class OpenAILLM:
         self._api_key = api_key
         self.model = model
 
-    def generate(self, request: LLMRequest) -> LLMResponse:  # pragma: no cover
+    def generate(self, request: LLMRequest) -> LLMResponse:
         from openai import OpenAI  # lazy: keyless path never imports this
 
         client = OpenAI(api_key=self._api_key)
@@ -223,8 +241,21 @@ class OpenAILLM:
         )
         content = json.loads(resp.choices[0].message.content or "{}")
         usage = resp.usage
-        tokens = int(getattr(usage, "total_tokens", 0)) if usage else _count(request.payload, content)
-        return LLMResponse(content=content, tokens=tokens)
+        if not usage:
+            return _estimated_response(request.payload, content)
+        # The provider's own counts: prompt (input, part of it possibly served
+        # from the prompt cache) and completion (output, incl. any reasoning).
+        input_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+        output_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+        details = getattr(usage, "prompt_tokens_details", None)
+        cached = int(getattr(details, "cached_tokens", 0) or 0) if details else 0
+        return LLMResponse(
+            content=content,
+            tokens=int(getattr(usage, "total_tokens", 0) or 0) or input_tokens + output_tokens,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cached_input_tokens=cached,
+        )
 
 
 def _build_prompt(request: LLMRequest) -> tuple[str, str]:  # pragma: no cover

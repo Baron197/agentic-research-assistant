@@ -31,7 +31,7 @@ def writer(state: dict[str, Any], ctx: AgentContext) -> dict[str, Any]:
             lambda content: parse_report(question, content),
         )
         sp.tokens = resp.tokens
-        sp.usd = ctx.tracer.cost(resp.tokens)
+        sp.usd = ctx.tracer.cost(resp)
         sp.input_summary = f"{len(evidence)} evidence items"
         sp.output_summary = f"{len(draft.all_claims())} claims in {len(draft.sections)} sections"
 

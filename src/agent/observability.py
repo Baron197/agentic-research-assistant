@@ -18,25 +18,34 @@ from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
 
+from .llm import LLMResponse
 from .schemas import RunResult, Step
 
 # --- Cost table -------------------------------------------------------------
-# USD per 1,000 tokens (blended input/output estimate for simplicity). The fake
-# provider is free, which is why keyless runs honestly report $0.00.
-PRICES: dict[str, float] = {
-    "fake-llm": 0.0,
-    "gpt-4o-mini": 0.0004,
-    "gpt-4o": 0.005,
-    "gpt-4.1": 0.004,
-    "gpt-4.1-mini": 0.0004,
+# USD per 1M tokens as (input, cached input, output): OpenAI's standard-tier list
+# prices (developers.openai.com/api/docs/pricing, checked 2026-10-05). Input and
+# output are priced separately because output costs ~4x more and a research run
+# is mostly input. The fake provider is free, which is why keyless runs honestly
+# report $0.00.
+PRICES: dict[str, tuple[float, float, float]] = {
+    "fake-llm": (0.0, 0.0, 0.0),
+    "gpt-4o-mini": (0.15, 0.075, 0.60),
+    "gpt-4o": (2.50, 1.25, 10.00),
+    "gpt-4.1": (2.00, 0.50, 8.00),
+    "gpt-4.1-mini": (0.40, 0.10, 1.60),
+    "gpt-4.1-nano": (0.10, 0.025, 0.40),
 }
-DEFAULT_PRICE_PER_1K = 0.0004  # fall back to a mini-tier estimate for unknowns
+DEFAULT_PRICES = PRICES["gpt-4o-mini"]  # an unknown model is priced as the default model
 
 
-def cost_usd(model: str, tokens: int) -> float:
-    """USD cost for ``tokens`` on ``model`` using the blended price table."""
-    rate = PRICES.get(model, DEFAULT_PRICE_PER_1K)
-    return round((tokens / 1000.0) * rate, 6)
+def cost_usd(model: str, input_tokens: int, output_tokens: int = 0,
+             cached_input_tokens: int = 0) -> float:
+    """List-price USD of one LLM call; ``cached_input_tokens`` is a subset of the input."""
+    price_in, price_cached, price_out = PRICES.get(model, DEFAULT_PRICES)
+    cached = min(cached_input_tokens, input_tokens)
+    usd = ((input_tokens - cached) * price_in + cached * price_cached
+           + output_tokens * price_out) / 1_000_000
+    return round(usd, 6)
 
 
 # --- Tracing ----------------------------------------------------------------
@@ -79,8 +88,18 @@ class Tracer:
         finally:
             sb.ms = (perf_counter() - start) * 1000.0
 
-    def cost(self, tokens: int) -> float:
-        return cost_usd(self.model, tokens)
+    def cost(self, response: LLMResponse) -> float:
+        """USD of one LLM call, from its input/output split (all input if it has none).
+
+        Only LLM calls are priced. Search and fetch steps still charge their
+        estimated tokens to the run's *budget*, but they carry no USD: the
+        provider bills those snippets as input, inside the writer's and critic's
+        calls, each time they read them.
+        """
+        if response.input_tokens or response.output_tokens:
+            return cost_usd(self.model, response.input_tokens, response.output_tokens,
+                            response.cached_input_tokens)
+        return cost_usd(self.model, response.tokens)
 
 
 # --- Persistence ------------------------------------------------------------

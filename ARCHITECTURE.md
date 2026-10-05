@@ -22,9 +22,10 @@ This project is a small but complete example of several agentic-AI patterns:
   token/cost budget, and an iteration cap. The system fails safe, never hangs,
   and never invents sources.
 - **Reflection loop** — the critic verifies the draft and can send the graph back
-  through a revise pass (the researcher covers any not-yet-attempted facet, the
-  writer re-drafts without the rejected claims), the "verify-then-revise" pattern
-  that measurably reduces unsupported claims (see the A/B in the README).
+  through a revise pass in which the writer re-drafts from the same evidence without
+  the rejected claims: the "verify-then-revise" pattern. Its removal mechanism is
+  proven end to end; its quality effect with a real model measured ≈0 on this eval
+  set (see the A/B in the README).
 - **Evaluation** — a golden set + metrics + an A/B + a CI gate, so quality is a
   number that can regress a build, not a vibe.
 
@@ -87,16 +88,20 @@ flowchart TD
     P --> R[Researcher]
     R --> W[Writer]
     W --> C{Critic}
+    W -. critic disabled .-> A
     C -- accept --> A[Approval?]
     A --> F[Finalizer]
     C -- "revise & iteration < max & budget ok" --> R
-    C -- "iteration cap reached" --> F
+    C -- "iteration cap reached" --> A
     F --> E([END])
     P -. budget exceeded .-> F
     R -. budget exceeded .-> F
-    W -. budget exceeded .-> F
-    C -. budget exceeded .-> F
+    W -. budget exceeded .-> A
+    C -. budget exceeded .-> A
 ```
+
+`Approval?` runs only when `require_approval` is set; otherwise those edges go
+straight to the finalizer.
 
 Edges are **conditional functions** built in `build_graph(ctx)`:
 
@@ -109,7 +114,10 @@ Edges are **conditional functions** built in `build_graph(ctx)`:
   human-approval gate is never bypassed — a budget-exhausted run still passes
   through approval before the finalizer.
 - After the **critic**: `revise` + under both the iteration cap and budget →
-  back to the researcher; otherwise → approval (if enabled) → finalizer.
+  back to the researcher; otherwise → approval (if enabled) → finalizer. On a
+  revise the researcher has nothing left to do: it attempts every facet on its
+  first pass (a budget overrun there routes to the finalizer, never to a revise),
+  so it passes straight through and the writer re-drafts from the same evidence.
 - If `enable_critic=False`, the writer routes directly past the critic — this is
   exactly the "critic OFF" arm of the A/B.
 
@@ -148,8 +156,9 @@ Two independent layers protect source integrity:
    (content mismatch between claim and cited snippet).
 
 Because layer 1 is always on, `source_validity` is `1.0` in both arms of the
-critic A/B; the critic's measurable contribution shows up in `citation_coverage`
-and `support_rate`.
+critic A/B. In the keyless A/B the critic's contribution shows up in
+`citation_coverage` and `support_rate` (+0.17, by construction: `FakeLLM` plants an
+uncited claim for it to catch); with a real model both deltas measured ≈0.
 
 ## 6. Observability
 
@@ -162,9 +171,15 @@ average citation coverage, and a **nearest-rank p95** latency
 (`ceil(0.95·n)-1`, clamped). The `Step` shape mirrors a Langfuse/OpenTelemetry
 span so this layer can be swapped for a hosted backend without touching agents.
 
-Cost comes from a small price table (`PRICES`, USD per 1K tokens); the fake model
-is `$0`, which is why keyless runs honestly report zero cost. The costing
-function is unit-tested with real model prices.
+Cost comes from a small price table (`PRICES`: OpenAI's list prices per 1M tokens
+for input, cached input and output). Each LLM call is priced from the provider's
+own usage counts (`LLMResponse.input_tokens` / `output_tokens` /
+`cached_input_tokens`), because output costs ~4× input and a research run is mostly
+input. Search and fetch steps charge their estimated tokens to the run's *budget* but
+carry no USD: OpenAI bills that page text as input, inside the writer's and critic's
+calls, each time they read it. The fake model is `$0`, which is why keyless runs honestly report zero cost.
+Tests pin the prices, the split, and that only LLM calls are priced; on real runs
+the tracker's figure matched OpenAI's raw usage exactly.
 
 ## 7. Evaluation
 
@@ -176,7 +191,8 @@ function is unit-tested with real model prices.
 - `point_coverage` — % of each task's `expected_points` present in the report (keyword proxy).
 - `abstention_accuracy` — out-of-corpus tasks must produce no claims.
 - run economics — avg tool calls / tokens / steps / latency.
-- `faithfulness` — LLM-as-judge, **import-guarded**, `n/a` unless real mode.
+- `faithfulness` — LLM-as-judge, **not implemented yet**: only the import-guarded
+  scaffold exists, so it reports `n/a` keyless and `not-run` in real mode.
 
 Modes: default (writes `eval/results/metrics.{json,md}`), `--compare` (critic
 ON/OFF A/B → `compare.{json,md}`), and `--min-citation-coverage X` (a CI gate that
@@ -195,9 +211,9 @@ none are hard-coded.
 - **`agents/*.py`** — the four nodes; `_common.py` holds the parsers and the `structured_call` validate/retry helper. The researcher also bounds each evidence snippet (`MAX_SNIPPET_CHARS`) so one unpunctuated page — which sentence-splitting would otherwise return whole — cannot consume the run's entire token budget.
 - **`guardrails.py`** — `clamp_input`, `enforce_citations`, `build_sources`, budget/iteration helpers, `validate_and_retry`.
 - **`graph.py`** — `GraphState`, the approval/finalizer nodes, the conditional routers, and `build_graph`.
-- **`observability.py`** — `Tracer`, cost table, persistence, `aggregate`.
+- **`observability.py`** — `Tracer`, list-price cost table (input / cached / output), persistence, `aggregate`.
 - **`runner.py`** — `run()` (the one entry point), `render_report_markdown`, and the CLI.
-- **`api.py`** — FastAPI service with validated request models and clean 500s. `POST /research` accepts optional `max_iterations`, `token_budget`, `require_approval`, and `enable_critic` overrides.
+- **`api.py`** — FastAPI service with validated request models and mapped errors (422 for rejected input, 502 when the model's output fails validation, 500 otherwise). `POST /research` accepts optional `max_iterations`, `token_budget`, `require_approval`, and `enable_critic` overrides.
 - **`mcp_server.py`** — OPTIONAL Model Context Protocol server (import-guarded; `mcp` is never imported on the keyless path). A fourth caller of `runner.run()` alongside the CLI, API and UI, so no agent, graph or tool changed to support it. Exposes three **tools** (`research`, `list_sources`, `assistant_status`) and one **resource** (`corpus://documents`) over stdio. Three decisions carry the design: (1) MCP callers are pinned to keyless mode unless the operator sets `MCP_ALLOW_REAL_MODE`, because a server answers whoever connects to it and must not spend the operator's budget silently — the downgrade is reported by `assistant_status`, never hidden; (2) the tool surface is a trust boundary, so the *model* may only choose `depth`, never `enable_critic` or `token_budget`; (3) expected failures raise `ToolError` so the message reaches the calling model and it can retry, while anything unexpected becomes the SDK's `UnexpectedToolError` and leaks nothing. Because stdio carries JSON-RPC on stdout, a test asserts the pipeline writes nothing there.
 - **`ui/streamlit_app.py`** — a multi-page Streamlit front-end (five pages via native `st.navigation`: Research, Critic A/B, History, Observability, Guide) that carries **no business logic**: it calls the FastAPI service over HTTP, but transparently falls back to an **embedded in-process backend** (the same `agent` functions the API handlers call; force with `ARA_EMBEDDED=1`) so the whole UI can also deploy as a single self-contained app (e.g. Streamlit Community Cloud). The Research page renders results in six tabs (Report, Evidence & sources, Corpus, Step timeline, Agent graph, Run data) with Markdown/JSON downloads, colour-coded metric cards, example-question chips, and a live critic on/off toggle; the Observability page is fed by `GET /metrics`. Light + dark themes (base theme in `.streamlit/config.toml`); screenshots in `docs/screenshots/`.
 

@@ -50,7 +50,8 @@ def test_structured_call_charges_tokens_of_failed_attempts():
 
         def generate(self, request: LLMRequest) -> LLMResponse:
             self.calls += 1
-            return LLMResponse(content={"ok": self.calls > 1}, tokens=10)
+            return LLMResponse(content={"ok": self.calls > 1}, tokens=10,
+                               input_tokens=7, output_tokens=3)
 
     def parse(content):
         if not content["ok"]:
@@ -60,6 +61,7 @@ def test_structured_call_charges_tokens_of_failed_attempts():
     parsed, resp = structured_call(FlakyLLM(), LLMRequest(role="planner", payload={}), parse)
     assert parsed == {"ok": True}
     assert resp.tokens == 20  # 10 (failed attempt) + 10 (successful retry)
+    assert (resp.input_tokens, resp.output_tokens) == (14, 6)  # the failed attempt was billed too
 
 
 def test_researcher_caps_oversized_snippet(settings):

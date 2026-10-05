@@ -932,8 +932,9 @@ def page_guide() -> None:
             "| **Avg citation coverage** | mean fraction of claims that carry a "
             "citation, across runs |\n\n"
             "Cost is honest by construction: the keyless model is priced at `$0`, so a "
-            "keyless run genuinely reports zero. A real model is priced from a small "
-            "per-1K-token table."
+            "keyless run genuinely reports zero. A real model is priced at list price "
+            "from the provider's own token counts, input and output separately; search "
+            "and fetch steps carry no USD."
         )
 
     with t_eval:

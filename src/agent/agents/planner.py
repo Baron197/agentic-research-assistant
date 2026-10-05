@@ -19,7 +19,7 @@ def planner(state: dict[str, Any], ctx: AgentContext) -> dict[str, Any]:
             lambda content: parse_plan(question, content),
         )
         sp.tokens = resp.tokens
-        sp.usd = ctx.tracer.cost(resp.tokens)
+        sp.usd = ctx.tracer.cost(resp)
         sp.input_summary = question
         sp.output_summary = f"{len(plan.sub_questions)} sub-questions"
 

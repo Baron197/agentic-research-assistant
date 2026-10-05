@@ -8,7 +8,7 @@ It covers two different goals:
 - **A public keyless demo** (Options S, A, B, C below) — anyone can open it; it costs nothing to run.
 - **A private real-mode work tool** ([§8](#8-real-mode--privately-on-0-infrastructure)) — real
   OpenAI + live web search on GCP or Oracle **free-tier infrastructure**, reachable only by you.
-  The only bill is your OpenAI usage (about **$0.004–$0.010 per research run** with `gpt-4o-mini`).
+  The only bill is your OpenAI usage (about **$0.001 per research run** with `gpt-4o-mini`).
 
 There are two ways to run it, and the deploy target decides which you use:
 
@@ -390,11 +390,11 @@ OpenAI usage (plus Tavily beyond its free plan). Three options — pick one.
 > 2. **Keys at runtime only.** Secret Manager on Cloud Run; a gitignored `.env` on the VM. The
 >    public repo and the Docker image stay keyless.
 
-### What it costs (measured on real live-web runs, `gpt-4o-mini`)
+### What it costs (measured on real runs, `gpt-4o-mini`)
 
 | | Per research run | Free allowance | Runs/month for $0 |
 |---|---|---|---|
-| **OpenAI** | **$0.004 – $0.010** | your prepaid credit | ~100–250 runs per **$1** |
+| **OpenAI** | **≈ $0.001** ($0.0007–$0.0015 measured) | your prepaid credit | ~700–1,400 runs per **$1** |
 | **Tavily** search | **5 searches** = 5 credits | 1,000 credits/month | **~200** |
 | **Infrastructure** | — | the free tiers below | $0 |
 

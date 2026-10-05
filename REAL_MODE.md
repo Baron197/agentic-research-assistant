@@ -139,7 +139,7 @@ run_id=… status=complete iterations=0 tool_calls=17 tokens=25273 usd=$0.0101 l
 | Revise loop | `iterations=1` (always) | **`iterations=0` — the critic accepted the first draft** |
 | Sources | `local://reranking.md` | real `https://` URLs |
 | Tool calls / tokens | 8 / 4,436 | 17 / 25,273 |
-| Cost / latency | `$0.0000` / ~12 ms | **`$0.0101` / 27.5 s** |
+| Cost / latency | `$0.0000` / ~12 ms | **≈ $0.004–0.005** at list price (printed as `$0.0101`, see below) / **27.5 s** |
 
 > **Important honesty note.** The revise loop **did not fire** in real mode. Keyless runs always
 > show `iterations=1` because `FakeLLM._write` deliberately appends one uncited "Synthesis" claim
@@ -156,7 +156,13 @@ run_id=… status=complete iterations=0 tool_calls=17 tokens=25273 usd=$0.0101 l
 - **The guarantee still held:** 100% citation coverage, 0 dropped claims, and every `[n]` resolves
   to a page that was actually fetched.
 - **Where the money goes:** the writer (~9.6k tokens) and the critic (~9.6k) dominate; searches and
-  fetches are almost free. Lowering `MAX_ITERATIONS` or the depth knobs is what reduces cost.
+  fetches cost no OpenAI money (only Tavily credits). Lowering `MAX_ITERATIONS` or the depth knobs is
+  what reduces cost.
+- **The printed `usd=$0.0101` overstated the bill about 2×.** The tracker then applied one blended
+  rate ($0.40 per 1M tokens) to every token, including the ~5.7k tokens of fetched page text that
+  OpenAI never bills on its own; it only bills that text as input when the writer and critic read
+  it. Priced correctly, this run's 19,570 LLM tokens cost **≈ $0.004–0.005**. The tracker now prices input
+  and output separately from OpenAI's own usage counts (see the next section).
 
 ### 6. Control the cost (real mode is paid — the guardrails are yours to set)
 - **`TOKEN_BUDGET`** — the pipeline stops cleanly as `partial` once a run exceeds it. Lower it to cap per-run spend.
@@ -166,9 +172,12 @@ run_id=… status=complete iterations=0 tool_calls=17 tokens=25273 usd=$0.0101 l
 - **Prepaid credit with auto-recharge OFF** — the ultimate backstop: you can't spend credit you
   don't have. (OpenAI's monthly budgets only *alert*; they don't cut requests off, and a cut-off can
   lag slightly behind a zero balance.)
-- Ballpark (**measured**): a 5-facet live-web run on `gpt-4o-mini` cost **$0.0101** (25,273 tokens).
-  A run over a *local* corpus is cheaper (smaller payloads). Tavily searches are free within the tier
-  — roughly 3–6 credits per run, so the 1,000/month free allowance is ~200 runs.
+- Ballpark (**measured** on 2026-10-05 with the corrected tracker, which matched OpenAI's raw usage
+  exactly): the same 5-facet MCP question on the live web cost **$0.0014** (7,762 tokens), and a run
+  over a local corpus **$0.0010** (4,264 tokens). Across four measured runs the range is
+  $0.0007–$0.0015, roughly **700–1,400 runs per $1**. Roughly 75–85% of the tokens are input, so
+  pricing input and output separately matters. Tavily searches are free within the tier, roughly
+  3–6 credits per run, so the 1,000/month free allowance is ~200 runs.
 
 ---
 
@@ -196,7 +205,7 @@ $env:LLM_PROVIDER="openai"; $env:SEARCH_PROVIDER="web"; $env:FETCH_PROVIDER="htt
 | avg tool calls | 8.9 | 17.1 | 17.6 |
 | avg tokens | 5,343 ⁵ | 3,995 | 28,885 |
 | avg latency | ~8 ms | 12.3 s | 31.5 s |
-| **cost (12 tasks)** | **$0.00** | **~$0.02** | **~$0.12** |
+| **cost (12 tasks)** ⁶ | **$0.00** | **≈ $0.01** | **≈ $0.02** |
 
 **The headline: `source_validity` stayed at 1.00 in all three modes.** The no-fabricated-sources
 guarantee is structural (`guardrails.py::enforce_citations`) — it does not depend on the model, the
@@ -222,6 +231,13 @@ On the live web both are trivially answerable, and the assistant answered them (
 ⁵ Different measurement bases: keyless charges an *estimate* (`approx_tokens`, ~4 chars/token) for
 every step, while real mode charges the **actual** `usage.total_tokens` for LLM calls. Don't read the
 keyless/real token columns as like-for-like.
+
+⁶ **Estimated, not billed totals.** The eval records tokens but not USD. These figures price each
+task's tokens at the cost per token measured on single runs with the corrected tracker (≈ $0.23 per
+1M run tokens over the local corpus, ≈ $0.19 on the live web). The exception is web `T02`: its
+210,941 tokens were almost all one fetched page that never reached the LLM (see below), so it counts
+as its planner call only. An earlier version of this table said ~$0.02 / ~$0.12. That applied the
+old blended rate to every token, T02's included.
 
 ### The critic A/B, re-run with a real model
 

@@ -5,7 +5,7 @@
 [![Live demo](https://img.shields.io/badge/Live%20demo-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://agentic-research-assistant-ra3rebpqgkqvyyw5wryrma.streamlit.app/)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
 [![CI](https://github.com/Baron197/agentic-research-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/Baron197/agentic-research-assistant/actions/workflows/ci.yml)
-[![tests](https://img.shields.io/badge/tests-93%20passing-brightgreen.svg)](#testing--ci)
+[![tests](https://img.shields.io/badge/tests-96%20passing-brightgreen.svg)](#testing--ci)
 [![Lint: ruff](https://img.shields.io/badge/lint-ruff-46a2f1.svg)](https://github.com/astral-sh/ruff)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Keyless](https://img.shields.io/badge/runs-keyless%20%240.00-brightgreen.svg)](#quickstart-keyless)
@@ -13,8 +13,8 @@
 > A multi-agent **Research & Report Assistant** orchestrated with **LangGraph**: it
 > plans research, gathers evidence with tools, drafts a structured report, and a
 > **critic verifies every claim against a cited source** — looping back to re-draft
-> (minus the rejected claims, plus any facet not yet researched) when a claim is
-> unsupported. It runs **fully keyless** (deterministic fake providers, zero cost)
+> without the rejected claims when a claim is unsupported. It runs **fully keyless**
+> (deterministic fake providers, zero cost)
 > and it is **structurally impossible** for the final report to cite a source that
 > was not actually gathered.
 
@@ -29,7 +29,7 @@
 - **A no-fabricated-sources guarantee** — `enforce_citations` strips every citation to an ungathered id and drops any claim left with no valid support; proven by a dedicated test.
 - **Guardrails** — schema-validated structured output (validate-and-retry), a hard `max_iterations` cap, and a token/cost budget that ends a run cleanly as `partial`.
 - **Evaluation wired into CI as a gate** — real metrics (no fabricated numbers), a critic ON/OFF A/B, and a `--min-citation-coverage` gate that fails the build on regression. The A/B was also re-run with a real model, where the critic's effect measured ~0 — reported as-is ([see why](#critic-ab--and-what-it-does-not-prove)).
-- **First-class observability** — every run records an ordered trace of steps with tokens, USD cost, and latency; `/metrics` aggregates runs with a nearest-rank p95.
+- **First-class observability** — every run records an ordered trace of steps with tokens, USD cost (list price, input and output priced separately from the provider's own usage counts), and latency; `/metrics` aggregates runs with a nearest-rank p95.
 - **Keyless mode** — `make test`, `make eval`, and the API all work with **no API key**; real mode (OpenAI + a real search provider) is one env var away.
 - **DSPy track (optional)** — the LLM reasoning steps can be swapped for declarative DSPy modules whose prompts are **auto-optimized** against the project's own grounding metric ("programming, not prompting"); import-guarded and off by default.
 - **MCP server (optional)** — the same pipeline is exposed over the **Model Context Protocol**, so Claude Desktop (or any MCP host) can call it as a tool and get back a report whose citations are structurally guaranteed. The no-fabricated-sources property becomes a promise the *calling* model can rely on.
@@ -70,21 +70,25 @@ flowchart TD
     P --> R[Researcher]
     R --> W[Writer]
     W --> C{Critic}
+    W -. critic disabled .-> A
     C -- accept --> A[Approval?]
     A --> F[Finalizer]
     C -- "revise & iteration < max & budget ok" --> R
-    C -- "iteration cap reached" --> F
+    C -- "iteration cap reached" --> A
     F --> E([END])
     P -. budget exceeded .-> F
     R -. budget exceeded .-> F
-    W -. budget exceeded .-> F
-    C -. budget exceeded .-> F
+    W -. budget exceeded .-> A
+    C -. budget exceeded .-> A
 ```
+
+`Approval?` runs only when `require_approval` is set; otherwise those edges go straight to the
+finalizer. Once a draft exists, every path passes through it, so a required human gate can't be skipped.
 
 - **Planner** decomposes the question into focused sub-questions + search queries.
 - **Researcher** runs `search` then `fetch` per sub-question, extracts evidence snippets with stable ids, and is budget-aware.
 - **Writer** synthesises evidence into a structured report, citing **only** gathered evidence ids.
-- **Critic** checks each claim against its cited evidence; on `revise` it drops unsupported claims and loops back — the researcher covers any facet not yet attempted and the writer re-drafts without the rejected claims (bounded by `max_iterations`).
+- **Critic** checks each claim against its cited evidence; on `revise` it drops the unsupported claims and loops back, and the writer re-drafts from the same evidence without the rejected claims (bounded by `max_iterations`). The loop passes through the researcher, but every facet was already attempted on the first pass, so no new evidence is gathered.
 - **Finalizer** applies the citation guarantee, numbers the sources, and sets `complete` / `partial`.
 
 ## Quickstart (keyless)
@@ -138,9 +142,10 @@ Then install the real extras (import-guarded, so the keyless path never needs th
 pip install openai tavily-python trafilatura        # trafilatura = cleaner article text
 ```
 
-Cost is low — measured at about **$0.004–$0.010 per run** with `gpt-4o-mini`, and
-Tavily's free tier (1,000 credits/month) covers ~200 runs at 5 searches each. Keep real mode **local** (or on a private host); never put your keys on the
-public demo.
+Cost is low — measured at about **$0.001 per run** with `gpt-4o-mini` ($0.0007–$0.0015
+across four real runs, live web and own documents), and Tavily's free tier (1,000
+credits/month) covers ~200 runs at 5 searches each. Keep real mode **local** (or on a
+private host); never put your keys on the public demo.
 
 **A real live-web run** (actual output, abridged — question deliberately outside the
 bundled corpus, so every source had to come from the internet):
@@ -170,6 +175,13 @@ still completed with a fully-cited report (graceful degradation, covered by
 `test_researcher_survives_tool_failures`), and `iterations=0` — the real critic
 accepted the first draft, because the revise loop you see in keyless mode is driven
 by `FakeLLM`'s deliberately-uncited "Synthesis" claim.
+
+One correction to that output: its `usd=$0.0101` came from the cost tracker as it was
+then, which applied one blended rate to every token, including fetched page text that
+OpenAI never bills separately. That overstated the bill about 2×. The tracker now prices
+input and output separately from OpenAI's own usage counts. Re-running the same question
+on 2026-10-05 cost **$0.0014** (7,762 tokens, fewer partly because of the snippet cap
+added since), and the tracker matched the raw API usage exactly.
 
 ### Research your own documents (work mode)
 
@@ -312,7 +324,7 @@ Step-by-step instructions for four free paths are in [**DEPLOYMENT.md**](DEPLOYM
 - Guidance for the **GCP $300 free trial**, plus cost guardrails to stay at exactly $0.
 - **Real mode as a private work tool** — OpenAI + live web search on GCP Cloud Run, Oracle A1
   or a GCP e2-micro, all on **free-tier infrastructure** and reachable only by you (you pay only
-  OpenAI usage, ~$0.004–$0.010 per run). See [DEPLOYMENT.md §8](DEPLOYMENT.md#8-real-mode--privately-on-0-infrastructure).
+  OpenAI usage, ~$0.001 per run). See [DEPLOYMENT.md §8](DEPLOYMENT.md#8-real-mode--privately-on-0-infrastructure).
 
 ## Results (keyless)
 
@@ -416,7 +428,7 @@ data/corpus/         11 seed docs (the "web" FakeSearch/FakeFetch operate over)
 eval/
   tasks.jsonl        12 golden tasks (incl. 2 out-of-corpus abstention checks)
   run_eval.py        metrics + critic A/B + CI gate
-tests/               deterministic, keyless end-to-end + unit tests (93; 67 in keyless CI, 26 need optional extras)
+tests/               deterministic, keyless end-to-end + unit tests (96; 70 in keyless CI, 26 need optional extras)
 docs/screenshots/    UI screenshots used in this README
 Dockerfile  docker-compose.yml  .dockerignore  Makefile  pyproject.toml  requirements.txt
 .env.example  .gitattributes  .github/workflows/ci.yml
@@ -425,20 +437,21 @@ README.md  ARCHITECTURE.md  DEPLOYMENT.md  REAL_MODE.md  LICENSE
 
 ## Testing & CI
 
-`make test` runs a fast, deterministic, keyless suite of **93 tests** (graph
+`make test` runs a fast, deterministic, keyless suite of **96 tests** (graph
 end-to-end, no-fabricated-sources, the one-revise critic loop + iteration cap,
 tiny-budget → `partial`, the **parallel researcher fan-out** — proving a
 concurrent run is byte-identical to a serial one — the **depth** knob, the
-**multi-format corpus**, the fake tools, the LRU cache, cost/aggregation, the
+**multi-format corpus**, the fake tools, the LRU cache, cost/aggregation (incl.
+that only LLM calls are priced, from the provider's input/output split), the
 provider-mix + config validation (incl. stripping stray whitespace from API keys),
 and the API incl. the `/runs`, `/corpus`, `enable_critic` and 422 paths).
 Twenty-six of them exercise **optional** extras
 (19 the MCP server — including its schemas, its real-mode cost guard, and a
 stdout-purity check that protects the stdio transport — 6 the DSPy backend, 1
 PDF-corpus reading) and do not run unless those extras are installed. So a
-default keyless install, and CI, report **67 passed, 3 skipped** — the three
+default keyless install, and CI, report **70 passed, 3 skipped** — the three
 optional groups skip as whole units — while a machine with the extras present
-runs all **93**, still keyless via fakes / `DummyLM`. CI
+runs all **96**, still keyless via fakes / `DummyLM`. CI
 (`.github/workflows/ci.yml`) runs `ruff check .` → `pytest -q` → the eval gate,
 all keyless with no secrets.
 
