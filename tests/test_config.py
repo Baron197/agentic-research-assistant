@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from agent.config import Settings
+from agent.config import PROJECT_ROOT, Settings
+from tests.conftest import isolate_from_local_config
 
 
 def test_incompatible_provider_mix_is_rejected():
@@ -37,3 +38,25 @@ def test_is_keyless_false_for_dspy_backend():
     # not report such a deployment as keyless (regression).
     assert Settings(_env_file=None).is_keyless is True
     assert Settings(_env_file=None, agent_backend="dspy").is_keyless is False
+
+
+def test_suite_ignores_the_developers_env_and_dotenv(tmp_path, monkeypatch):
+    # A developer machine in real mode: a .env plus shell variables pointing at
+    # OpenAI, live search and a private corpus. Tests must see none of it, or a
+    # local `pytest` spends real money and tests the wrong corpus (regression).
+    dotenv = tmp_path / ".env"
+    dotenv.write_text("LLM_PROVIDER=openai\nOPENAI_API_KEY=sk-not-a-real-key\n"
+                      "CORPUS_DIR=/private/corpus\n", encoding="utf-8")
+    monkeypatch.setitem(Settings.model_config, "env_file", str(dotenv))
+    monkeypatch.setenv("SEARCH_PROVIDER", "web")
+    monkeypatch.setenv("FETCH_PROVIDER", "http")
+    monkeypatch.setenv("search_api_key", "tvly-not-a-real-key")  # Settings is case-insensitive
+    hostile = Settings()
+    assert (hostile.llm_provider, hostile.search_provider) == ("openai", "web")  # the trap is live
+
+    isolate_from_local_config(monkeypatch)
+
+    clean = Settings()
+    assert clean.is_keyless
+    assert clean.openai_api_key == clean.search_api_key == ""
+    assert clean.corpus_dir == PROJECT_ROOT / "data" / "corpus"
