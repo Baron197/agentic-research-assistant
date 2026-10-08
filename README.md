@@ -326,7 +326,7 @@ Step-by-step instructions for four free paths are in [**DEPLOYMENT.md**](DEPLOYM
 - Guidance for the **GCP $300 free trial**, plus cost guardrails to stay at exactly $0.
 - **Real mode as a private work tool** — OpenAI + live web search on GCP Cloud Run, Oracle A1
   or a GCP e2-micro, all on **free-tier infrastructure** and reachable only by you (you pay only
-  OpenAI usage, ~$0.001 per run). See [DEPLOYMENT.md §8](DEPLOYMENT.md#8-real-mode--privately-on-0-infrastructure).
+  OpenAI usage, ~$0.001 per run). AWS EC2 works too, but its Free plan is $0 for six months only. See [DEPLOYMENT.md §8](DEPLOYMENT.md#8-real-mode--privately-on-0-infrastructure).
 
 ## Results (keyless)
 

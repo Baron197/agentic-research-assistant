@@ -324,17 +324,19 @@ itself stays keyless and safe to be public; your keys live only in the host's se
 **the app has no login of its own, so a public real-mode URL spends _your_ money for anyone who opens
 it** — a real-mode deployment must be private.
 
-### GCP Cloud Run, Oracle Cloud, or a GCP VM → DEPLOYMENT.md §8
+### GCP Cloud Run, Oracle Cloud, a GCP VM, or AWS EC2 → DEPLOYMENT.md §8
 
 The step-by-step recipes live in one place:
 **[DEPLOYMENT.md → §8 Real mode — privately, on $0 infrastructure](DEPLOYMENT.md#8-real-mode--privately-on-0-infrastructure)**.
-All three keep the servers inside the free tiers, so the only bill is your OpenAI usage:
+R1–R3 keep the servers inside always-free tiers, so the only bill is your OpenAI usage; R4 runs on
+AWS's Free-plan credits, which last six months:
 
 | Option | How you open it | Infra cost | Run history |
 |---|---|---|---|
 | **R1 — GCP Cloud Run** *(recommended)* | `gcloud run services proxy` → `localhost:8501` | $0 in the free tier | resets on scale-to-zero |
 | **R2 — Oracle Ampere A1 VM** | SSH tunnel → `localhost:8501` | $0 (Always Free) | kept |
 | **R3 — GCP e2-micro VM** | SSH tunnel → `localhost:8501` | $0 (Always Free) | kept |
+| **R4 — AWS EC2 `t4g.small`** | SSH tunnel → `localhost:8501` | $0 for 6 months (Free-plan credits) | kept |
 
 Three things make these work — worth knowing if you deployed an older version:
 - **The Docker image ships the real-mode SDKs** (`openai`, `tavily-python`). They're imported only when a

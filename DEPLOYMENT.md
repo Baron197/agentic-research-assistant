@@ -1,4 +1,4 @@
-# Deployment Guide — free hosting (Streamlit Cloud, GCP & Oracle Cloud)
+# Deployment Guide — free hosting (Streamlit Cloud, GCP, Oracle Cloud & AWS)
 
 This guide deploys the **Agentic Research & Report Assistant** to the cloud for **$0**.
 The app is ideal for a free tier: it's a small, keyless Python stack with **no database,
@@ -7,7 +7,8 @@ no API keys, and no GPU** — the whole thing runs offline on deterministic fake
 It covers two different goals:
 - **A public keyless demo** (Options S, A, B, C below) — anyone can open it; it costs nothing to run.
 - **A private real-mode work tool** ([§8](#8-real-mode--privately-on-0-infrastructure)) — real
-  OpenAI + live web search on GCP or Oracle **free-tier infrastructure**, reachable only by you.
+  OpenAI + live web search on GCP or Oracle **free-tier infrastructure** (or AWS on its 6-month
+  Free plan), reachable only by you.
   The only bill is your OpenAI usage (about **$0.001 per research run** with `gpt-4o-mini`).
 
 There are two ways to run it, and the deploy target decides which you use:
@@ -32,13 +33,14 @@ There are two ways to run it, and the deploy target decides which you use:
 | **B** | **e2-micro VM** + compose | GCP | ✅ (1 GB RAM — tight) | ✅ | Medium | Always-on full stack on GCP |
 | **C** | **Ampere A1 VM** + compose | Oracle | ✅ (2 OCPU / 12 GB) | ✅ | Medium | **Free-forever full stack (recommended)** |
 | **T** | Anything | GCP **Free Trial** | 💳 $300 / 90 days | either | — | Experimenting while a trial is active — then migrate to A or C |
-| **R** | **Real mode, private** | GCP or Oracle | ✅ infra $0 · you pay OpenAI | depends | Medium | **Using it as your own work tool** → [§8](#8-real-mode--privately-on-0-infrastructure) |
+| **R** | **Real mode, private** | GCP, Oracle or AWS | ✅ infra $0 · you pay OpenAI (AWS: 6 months) | depends | Medium | **Using it as your own work tool** → [§8](#8-real-mode--privately-on-0-infrastructure) |
 
 **Recommendations**
 - **Just want a free demo link with the least effort?** → **Option S (Streamlit Community Cloud)** — point it at the repo and click Deploy; no Docker, no CLI, no card. Same as how you deployed your RAG app.
 - **Want it free forever with a real separate API + UI?** → **Option C (Oracle Ampere A1)** — by far the most RAM headroom.
 - **Want a scale-to-zero public link that costs nothing when nobody's using it?** → **Option A (GCP Cloud Run)**.
 - **Want to use real OpenAI + live web search for your own work, without paying for servers?** → **[§8](#8-real-mode--privately-on-0-infrastructure)** — private deployments on the same free tiers.
+- **Want AWS experience (and on your CV)?** → **[§8 R4](#r4--aws-ec2--ssh-tunnel-free-plan-6-months)** — EC2 on AWS's Free plan: $0 for 6 months, not forever.
 - **Have an active GCP $300 trial?** → Use **A or B freely** (the credit covers any overage and unlocks any region/size), then **migrate to A or C before it ends** to stay at $0. See [§5](#5-gcp-free-trial).
 
 Current free-tier facts used below (**re-verified September 2026** against the providers' own
@@ -49,6 +51,7 @@ pages — always re-check, they change):
 - **Oracle Always Free**: Ampere A1 = **2 OCPU / 12 GB** (1,500 OCPU-hours + 9,000 GB-hours/month), or 2× AMD E2.1.Micro (1 GB each); 200 GB block storage; 10 TB/month egress. Idle Always-Free instances **may be reclaimed** (see [§8](#8-real-mode--privately-on-0-infrastructure)).
 - **GCP Free Trial**: $300 credit, 90 days, **no automatic charges** — the account closes at 90 days or $300 and you're only billed if you *manually* upgrade.
 - **Oracle Free Trial**: $300 credit for 30 days; afterwards paid resources are reclaimed, Always-Free resources keep running, and nothing is charged unless you upgrade.
+- **AWS Free plan** (accounts opened since 15 July 2025; verified October 2026): $100 credit at sign-up + up to $100 more from *Explore AWS* activities, for **6 months**. Free-plan instance types are `t3.micro`, `t3.small`, `t4g.micro`, `t4g.small`, `c7i-flex.large` and `m7i-flex.large`, paid **from the credits** — no free hours. A public IPv4 address is $0.005/hour. The account can't be charged on the Free plan; it is suspended when the credits or the 6 months run out, and erased 90 days later unless upgraded.
 
 ---
 
@@ -253,16 +256,22 @@ closest to you. Provisioning the account can take a few minutes.
 - **Name:** e.g. `ara-vm`.
 - **Image and shape → Change shape → Ampere →** `VM.Standard.A1.Flex`, set **2 OCPUs / 12 GB**
   (the free cap). The shape should be marked *Always Free-eligible*.
-- **Change image → Canonical Ubuntu 22.04.** With an Ampere shape you need the **aarch64 (Arm)**
+- **Change image → Canonical Ubuntu 24.04** (the plain one, not *Minimal*; 22.04 leaves standard
+  support in April 2027). With an Ampere shape you need the **aarch64 (Arm)**
   build; if the Console says the image isn't compatible, re-select Ubuntu *after* choosing the shape.
   (The app's base image `python:3.11-slim` is multi-arch and every dependency ships Arm wheels, so it
   builds natively — nothing special needed.)
-- **Networking:** keep the default VCN / public subnet and **Assign a public IPv4 address**.
+- **Networking:** a new account has no network yet — choose **Create new virtual cloud network**
+  and **Create new public subnet**, and turn on **Automatically assign public IPv4 address**. If
+  that toggle won't switch on, create the instance anyway and add the IP afterwards: instance →
+  Networking → primary VNIC → IPv4 addresses → ⋮ → Edit → **Ephemeral public IP**.
 - **Add SSH keys → Generate a key pair for me → Save private key.** Keep the downloaded `.key` file
   safe (e.g. in `C:\Users\you\.ssh\`) — it can't be downloaded again. The login user is `ubuntu`.
 - **Boot volume:** the default (~47 GB) fits inside the 200 GB free allowance.
-- If you see *"Out of host capacity"*, retry later or pick a different Availability Domain — free
-  A1 capacity is often tight (see [§8 R2](#r2--oracle-cloud-ampere-a1-vm--ssh-tunnel) on Pay As You Go).
+- If you see *"Out of host capacity"*, retry later, pick a different Availability Domain (if your
+  region has several), or try a smaller **1 OCPU / 6 GB** shape — free A1 capacity is often tight
+  (see [§8 R2](#r2--oracle-cloud-ampere-a1-vm--ssh-tunnel) on Pay As You Go). Retry slowly: rapid
+  attempts get *"Too many requests"*.
 
 **2. Open the ports — Oracle needs BOTH the cloud firewall AND the OS firewall**
 *(keyless demo only — for real mode, skip this step entirely; see [§8](#8-real-mode--privately-on-0-infrastructure))*:
@@ -381,7 +390,8 @@ mode**, where every run spends your OpenAI credit. Never put a real-mode deploym
 
 Everything above deploys the **keyless** demo. This section runs **real mode** (OpenAI + live web
 search) as a **private work tool**: the servers stay inside the free tiers, and the only bill is your
-OpenAI usage (plus Tavily beyond its free plan). Three options — pick one.
+OpenAI usage (plus Tavily beyond its free plan). Four options — pick one (R4 is free for six
+months only).
 
 > **Two rules for every option**
 > 1. **Private, never public.** There is no app login, and every run spends *your* credit. Each
@@ -398,7 +408,7 @@ OpenAI usage (plus Tavily beyond its free plan). Three options — pick one.
 | **Tavily** search | **5 searches** = 5 credits | 1,000 credits/month | **~200** |
 | **Infrastructure** | — | the free tiers below | $0 |
 
-### Before you start (all three options)
+### Before you start (all four options)
 - **OpenAI → Settings → Billing: turn auto-recharge OFF.** OpenAI's monthly *budgets* only send
   alert emails — they don't stop requests. With prepaid credit and auto-recharge off, the most you
   can ever spend is the balance you already have. That is your real hard limit.
@@ -406,17 +416,17 @@ OpenAI usage (plus Tavily beyond its free plan). Three options — pick one.
 - **`TOKEN_BUDGET`** (e.g. `40000`) caps tokens per run inside the app; runs that hit it end
   `partial` instead of spending more.
 - **One OpenAI key per deployment.** Create a separate key for each place you deploy (e.g. named
-  `ara-cloudrun`, `ara-oracle`) so you can revoke one without breaking the others, and see which
+  `ara-cloudrun`, `ara-oracle`, `ara-aws`) so you can revoke one without breaking the others, and see which
   deployment is spending.
 
-| | **R1 — GCP Cloud Run** | **R2 — Oracle A1 VM** | **R3 — GCP e2-micro VM** |
-|---|---|---|---|
-| How you open it | `gcloud run services proxy` → `localhost:8501` | SSH tunnel → `localhost:8501` | SSH tunnel → `localhost:8501` |
-| Infrastructure cost | $0 in the Cloud Run free tier (mind open tabs, below) | $0 (Always Free) | $0 (Always Free) |
-| Run history kept | ❌ resets when it scales to zero | ✅ | ✅ |
-| Memory | 1 GiB | 12 GB | 1 GB + swap |
-| Upkeep | none — nothing to patch | OS updates; **idle-reclaim risk** | OS updates |
-| Choose it when | **you want zero maintenance (recommended)** | you want always-on + history, lots of RAM | you want always-on on GCP |
+| | **R1 — GCP Cloud Run** | **R2 — Oracle A1 VM** | **R3 — GCP e2-micro VM** | **R4 — AWS EC2** |
+|---|---|---|---|---|
+| How you open it | `gcloud run services proxy` → `localhost:8501` | SSH tunnel → `localhost:8501` | SSH tunnel → `localhost:8501` | SSH tunnel → `localhost:8501` |
+| Infrastructure cost | $0 in the Cloud Run free tier (mind open tabs, below) | $0 (Always Free) | $0 (Always Free) | $0 for **6 months** (Free-plan credits) |
+| Run history kept | ❌ resets when it scales to zero | ✅ | ✅ | ✅ |
+| Memory | 1 GiB | 12 GB | 1 GB + swap | 2 GB (`t4g.small`) |
+| Upkeep | none — nothing to patch | OS updates; **idle-reclaim risk** | OS updates | OS updates; **expires after 6 months** |
+| Choose it when | **you want zero maintenance (recommended)** | you want always-on + history, lots of RAM | you want always-on on GCP | you want AWS experience |
 
 ---
 
@@ -637,6 +647,67 @@ Then open **http://localhost:8501**.
 
 ---
 
+### R4 — AWS EC2 + SSH tunnel (Free plan, 6 months)
+
+Always-on with run history, on AWS — useful for learning AWS and for having it on your CV.
+**It is not free forever.** A new AWS account starts on the **Free plan**: $100 in credits at
+sign-up and up to $100 more from the activities in the *Explore AWS* widget on the Console Home,
+for **6 months**. The instance, its disk and its public IP are paid from those credits, and a
+Free-plan account can't be charged beyond them. For a permanent $0 home, use R1–R3.
+
+**What it draws from the credits** (approximate; prices vary a little by region): a `t4g.small`
+(2 vCPU Arm, 2 GB) about $12–16/month, a 20 GB gp3 disk about $2/month, and the public IPv4
+address $0.005/hour (about $3.60/month) — **roughly $18–22/month**, so $200 covers the six months.
+A `t4g.micro` (1 GB) halves the instance cost but needs the 1 GB swap from R3.
+
+**0. Create the account** at [aws.amazon.com/free](https://aws.amazon.com/free/) and keep the
+**Free plan** (the default for new accounts). It asks for a card to verify you; the Free plan
+doesn't charge it. On the Console Home, open **Explore AWS → Earn AWS credits** for the extra $100.
+
+**1. Launch the instance** (EC2 → Instances → **Launch instances**):
+- **Region** (top right): the closest to you, e.g. Asia Pacific (Singapore) `ap-southeast-1`.
+- **Name:** `ara-vm`.
+- **AMI:** Ubuntu Server 24.04 LTS, architecture **64-bit (Arm)**.
+- **Instance type:** `t4g.small` (marked *Free tier eligible*). If your region doesn't offer it,
+  pick `t3.small` with the **64-bit (x86)** Ubuntu AMI instead — also 2 GB.
+- **Key pair → Create new key pair:** any name (e.g. `ara-aws`), format **`.pem`**. It downloads
+  once; move it to `C:\Users\you\.ssh\`.
+- **Network settings:** default VPC, **Auto-assign public IP: Enable**, **Create security group**
+  with **Allow SSH traffic from: My IP**. Leave the HTTP/HTTPS boxes **unticked** — SSH is the
+  only port ever opened.
+- **Configure storage:** raise the default 8 GiB to **20 GiB gp3** (Docker images need the room).
+- **Launch instance**, then copy its **Public IPv4 address**.
+
+Lock the key on Windows, or `ssh` refuses it as *unprotected* (PowerShell):
+```powershell
+icacls "C:\Users\you\.ssh\ara-aws.pem" /inheritance:r /grant:r "$($env:USERNAME):(R)"
+```
+
+**2. On the instance** — connect (the user is `ubuntu`), then follow
+[R2 steps 2–3](#r2--oracle-cloud-ampere-a1-vm--ssh-tunnel) unchanged: Docker, the `.env` with
+`ARA_BIND=127.0.0.1`, `docker compose up -d --build`, the health check.
+```powershell
+ssh -i C:\Users\you\.ssh\ara-aws.pem ubuntu@PUBLIC_IP
+```
+
+**3. Open it from your laptop:**
+```powershell
+ssh -i C:\Users\you\.ssh\ara-aws.pem -N -L 8501:localhost:8501 ubuntu@PUBLIC_IP
+```
+Then open **http://localhost:8501**.
+
+- **SSH suddenly times out?** Your home or mobile IP changed, so the *My IP* rule no longer
+  matches: EC2 → Security groups → edit the SSH rule → source **My IP** again.
+- **Stop vs terminate.** Stopping pauses the instance hours, but the disk and the public IP keep
+  drawing credits, and the public IP **changes** on the next start. Terminate it when you're done.
+- **Watch the credits:** the *Cost and usage* widget on the Console Home shows the balance and the
+  days left.
+- **When the six months end**, AWS suspends the account and keeps its data for 90 days; upgrading
+  to the Paid plan in that window restores it, otherwise everything is erased. To keep running
+  past it, upgrade first (it then costs the ~$18–22/month above) or move to R1–R3.
+
+---
+
 ### Real mode on Streamlit Community Cloud?
 
 Possible, but it's the least private option: a public Streamlit app has **no login**, so anyone
@@ -664,6 +735,9 @@ gcloud compute firewall-rules delete ara-ports
 
 # Oracle: terminate the instance in the Console (Compute → Instances → … → Terminate),
 # and delete the VCN if you created a dedicated one.
+
+# AWS (§8 R4): EC2 → Instances → ara-vm → Instance state → Terminate (its disk goes with it),
+# then delete its security group. On the Free plan, nothing else is billed.
 ```
 
 If a real-mode host held your keys and you're done with it (or it was reclaimed), **revoke those
@@ -681,7 +755,8 @@ keys** in the OpenAI and Tavily dashboards and create new ones for the next depl
 | Cloud Run UI is blank / "connecting…" forever | Ensure `--session-affinity` is set and the UI listens on port **8080**; keep `--server.enableXsrfProtection=false`. |
 | `gcloud run deploy --source` uploads for ages | Confirm `.dockerignore` exists (it excludes `.venv/`, `runs/`, `docs/`) so the context is small. |
 | Oracle: page won't load though the app is running | You opened the **Security List** but not the **OS firewall** (iptables/firewalld) — do both (Option C step 2). |
-| Oracle: "Out of host capacity" creating the A1 | Retry, or choose a different Availability Domain / home region. |
+| Oracle: "Out of host capacity" creating the A1 | Retry later, try **1 OCPU / 6 GB**, or another Availability Domain if your region has several. Upgrading to Pay As You Go usually gets capacity. |
+| Oracle: *Too many requests for the user* | Rate limit from rapid retries — wait 15–30 minutes, then retry at a relaxed pace. Check *Networking → Virtual cloud networks* for networks the failed attempts left behind, and reuse one (*Select existing virtual cloud network*). |
 | GCP e2-micro build killed / OOM | Add the 1 GB swap (Option B step), or build the image once then `up -d` without `--build`. |
 | UI can't reach the API | Check `API_URL` — `http://api:8000` inside docker-compose; the API's public URL on Cloud Run. |
 | `gcloud run deploy --source` fails with `PERMISSION_DENIED` | Grant the build service account `roles/run.builder` (Option A step 1b / §8 R1 step 1). Projects created after May 2024 don't get it automatically. |
@@ -696,6 +771,8 @@ keys** in the OpenAI and Tavily dashboards and create new ones for the next depl
 | Console: *You need additional access* / *permission denied* on the project | Your browser is signed in with a different Google account. Switch accounts (avatar, top right) to the one that owns the project. |
 | Windows Git Bash: `gcloud` → *Python was not found* | Git Bash picks a launcher that looks for a system Python. Run `gcloud` from **PowerShell** (or use Cloud Shell for the bash steps). |
 | Oracle: *image is not compatible with the selected shape* | Choose the **Ampere** shape first, then re-select Ubuntu so the Console picks the **aarch64** build. |
+| AWS: SSH times out | Your IP changed (the *My IP* rule no longer matches — edit the security group), or the instance was stopped and restarted with a **new** public IP. |
+| AWS: *Permission denied (publickey)* | Log in as **`ubuntu`** (not `ec2-user`) with the `.pem` from that instance's key pair, locked with `icacls`. |
 
 ---
 
@@ -703,5 +780,6 @@ keys** in the OpenAI and Tavily dashboards and create new ones for the next depl
 no Docker, no card. Simplest path to free-forever with a separate API + UI:
 **Option C (Oracle Ampere A1)**. Zero-idle-cost public link with a real API:
 **Option A (GCP Cloud Run)**. Real OpenAI + live web search as a private work tool on free
-infrastructure: **[§8](#8-real-mode--privately-on-0-infrastructure)**, starting with **R1 (Cloud Run)**.
+infrastructure: **[§8](#8-real-mode--privately-on-0-infrastructure)**, starting with **R1 (Cloud Run)**
+(**R4** if you want it on AWS, free for six months).
 With an active GCP trial, experiment freely, then land on one of those before it ends.*
