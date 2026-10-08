@@ -33,5 +33,8 @@ services:
       - "${ARA_BIND:-0.0.0.0}:8501:8501"
     environment:
       API_URL: http://api:8000   # the UI stays a thin client; only the api holds keys
+      # Optional login screen for sharing a real-mode instance (empty = no gate).
+      # Compose reads it from the .env next to this file.
+      ARA_UI_PASSWORD: ${ARA_UI_PASSWORD:-}
     depends_on:
       - api

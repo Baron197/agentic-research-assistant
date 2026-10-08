@@ -21,9 +21,11 @@ Observability · Guide. Shared state lives in ``st.session_state``.
 
 from __future__ import annotations
 
+import hmac
 import html
 import json
 import os
+import time
 from typing import Any
 
 import httpx
@@ -1015,6 +1017,35 @@ def page_guide() -> None:
             "renders the response."
         )
 
+
+# ------------------------------------------------------------------------ access
+# Optional shared password, for a real-mode deployment shared with a reviewer.
+# The check lives inside the app rather than in front of it as HTTP basic auth:
+# Safari doesn't send basic-auth credentials on WebSocket connections (WebKit bug
+# 80362), so a Safari visitor would sit on "connecting" forever. Unset (the public
+# keyless demo) means no gate at all.
+UI_PASSWORD = os.environ.get("ARA_UI_PASSWORD", "")
+
+
+def require_password() -> None:
+    """Stop here until this browser session has entered ``ARA_UI_PASSWORD``."""
+    if not UI_PASSWORD or ss.get("authenticated"):
+        return
+    hero("Agentic Research &amp; Report Assistant",
+         "This instance is private. Enter the password you were given.")
+    with st.form("login"):
+        attempt = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Enter", type="primary")
+    if submitted:
+        if hmac.compare_digest(attempt.encode(), UI_PASSWORD.encode()):
+            ss.authenticated = True
+            st.rerun()
+        time.sleep(1)  # slow down guessing
+        st.error("Wrong password.")
+    st.stop()
+
+
+require_password()
 
 # ------------------------------------------------------------------------ navigate
 _nav = st.navigation([

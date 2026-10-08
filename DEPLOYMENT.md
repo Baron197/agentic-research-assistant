@@ -653,7 +653,8 @@ Always-on with run history, on AWS — useful for learning AWS and for having it
 **It is not free forever.** A new AWS account starts on the **Free plan**: $100 in credits at
 sign-up and up to $100 more from the activities in the *Explore AWS* widget on the Console Home,
 for **6 months**. The instance, its disk and its public IP are paid from those credits, and a
-Free-plan account can't be charged beyond them. For a permanent $0 home, use R1–R3.
+Free-plan account can't be charged beyond them. For a permanent $0 home, use R1–R3. To let an
+employer or another reviewer try it, see [the optional step at the end](#optional--let-a-reviewer-in-https--password).
 
 **What it draws from the credits** (approximate; prices vary a little by region): a `t4g.small`
 (2 vCPU Arm, 2 GB) about $12–16/month, a 20 GB gp3 disk about $2/month, and the public IPv4
@@ -706,6 +707,82 @@ Then open **http://localhost:8501**.
   to the Paid plan in that window restores it, otherwise everything is erased. To keep running
   past it, upgrade first (it then costs the ~$18–22/month above) or move to R1–R3.
 
+#### Optional — let a reviewer in (HTTPS + password)
+
+For when someone, an employer for example, wants to try real mode themselves. Everything above
+stays as it is; this adds an HTTPS address and a password screen in front of the UI. It's meant
+for a review period, not as a permanent public site.
+
+**Cap the spending first.** Every question the reviewer asks spends your OpenAI credit (about
+$0.001 each). Keep OpenAI on prepaid credit with auto-recharge off and a small balance (e.g.
+$5–10) while it's shared: that is the most a leaked link can ever cost. `TOKEN_BUDGET` already
+caps each run, and Tavily's free plan stops at 1,000 searches a month without charging.
+
+**1. Give the instance a fixed address (recommended).** EC2 → Elastic IPs → **Allocate Elastic IP
+address**, then **Actions → Associate** it with `ara-vm`. It replaces the instance's public IP (use
+the new one for SSH from now on) and costs the same $0.005/hour. Without it, the address changes
+whenever the instance stops.
+
+**2. Get a free domain name.** Sign in at [duckdns.org](https://www.duckdns.org/) with Google or
+GitHub, add a subdomain such as `YOUR-NAME`, put the instance's **Elastic IP** in its *current ip*
+box (it pre-fills your laptop's IP, so replace it) and click **update ip**.
+`YOUR-NAME.duckdns.org` now points at the instance.
+
+**3. Open the web ports.** EC2 → Security groups → the instance's group → **Edit inbound rules** →
+add **HTTP (80)** and **HTTPS (443)** from **Anywhere-IPv4**. Port 80 is only used to get the
+certificate and to redirect to HTTPS. SSH stays limited to *My IP*, and the app's own ports stay on
+loopback (`ARA_BIND=127.0.0.1`).
+
+**4. Turn on the password screen** (on the instance). It needs the current code, so pull and
+rebuild:
+```bash
+cd ~/ara && git pull
+echo "ARA_UI_PASSWORD=$(openssl rand -hex 16)" >> .env
+grep ARA_UI_PASSWORD .env               # the password to give the reviewer
+docker compose up -d --build --force-recreate
+```
+`--force-recreate` also starts a **fresh run history**, so the reviewer can't see your own earlier
+questions on the *History* page. (You'll see theirs.)
+
+**5. Put HTTPS in front with Caddy.** It gets and renews a free Let's Encrypt certificate by itself
+(DuckDNS is on the Public Suffix List, so its rate limits are per subdomain):
+```bash
+sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+sudo chmod o+r /usr/share/keyrings/caddy-stable-archive-keyring.gpg /etc/apt/sources.list.d/caddy-stable.list
+sudo apt update && sudo apt install -y caddy
+sudo nano /etc/caddy/Caddyfile
+```
+Replace the file's contents with these three lines (your own subdomain), save, and reload:
+```
+YOUR-NAME.duckdns.org {
+    reverse_proxy localhost:8501
+}
+```
+Then apply it (in the terminal, not in the file):
+```bash
+sudo systemctl reload caddy
+```
+Open **https://YOUR-NAME.duckdns.org**. After a few seconds for the certificate, the password
+screen appears. Send the reviewer the address, and the password separately.
+
+- **Why a password screen inside the app, and not the proxy's basic auth?** Streamlit runs over a
+  WebSocket, and Safari doesn't send basic-auth credentials on WebSocket connections
+  ([WebKit bug 80362](https://bugs.webkit.org/show_bug.cgi?id=80362), still open), so a reviewer
+  on a Mac would sit on "connecting" forever. The app's own screen works in every browser.
+- **The password is per browser session:** a new tab or browser asks again.
+
+**6. When the review is over, close it:**
+```bash
+sudo systemctl disable --now caddy
+```
+Then remove the HTTP/HTTPS rules from the security group, and if you made one, **Disassociate** and
+**Release** the Elastic IP: an unused Elastic IP still costs $0.005/hour, and the instance gets a
+new public IP for SSH. If the link or password went further than intended, rotate the OpenAI key
+as well. To drop the password screen from your own tunnel, delete the `ARA_UI_PASSWORD` line from
+`.env` and run `docker compose up -d`.
+
 ---
 
 ### Real mode on Streamlit Community Cloud?
@@ -737,7 +814,8 @@ gcloud compute firewall-rules delete ara-ports
 # and delete the VCN if you created a dedicated one.
 
 # AWS (§8 R4): EC2 → Instances → ara-vm → Instance state → Terminate (its disk goes with it),
-# then delete its security group. On the Free plan, nothing else is billed.
+# then delete its security group, and release the Elastic IP if you made one (an
+# unattached one is still billed). On the Free plan, nothing else is billed.
 ```
 
 If a real-mode host held your keys and you're done with it (or it was reclaimed), **revoke those
@@ -772,6 +850,7 @@ keys** in the OpenAI and Tavily dashboards and create new ones for the next depl
 | Windows Git Bash: `gcloud` → *Python was not found* | Git Bash picks a launcher that looks for a system Python. Run `gcloud` from **PowerShell** (or use Cloud Shell for the bash steps). |
 | Oracle: *image is not compatible with the selected shape* | Choose the **Ampere** shape first, then re-select Ubuntu so the Console picks the **aarch64** build. |
 | AWS: SSH times out | Your IP changed (the *My IP* rule no longer matches — edit the security group), or the instance was stopped and restarted with a **new** public IP. |
+| AWS reviewer link: the https:// address doesn't load | Check that DuckDNS points at the **Elastic IP**, that ports 80 and 443 are open in the security group, and Caddy's log: `sudo journalctl -u caddy --no-pager -n 50`. |
 | AWS: *Permission denied (publickey)* | Log in as **`ubuntu`** (not `ec2-user`) with the `.pem` from that instance's key pair, locked with `icacls`. |
 
 ---
