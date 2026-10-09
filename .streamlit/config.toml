@@ -10,5 +10,11 @@ font = "sans serif"
 [server]
 headless = true
 
+[client]
+# Viewer toolbar for everyone: no "Deploy" button or developer menu entries in the
+# deployed app (Streamlit shows them by default to anyone on localhost, which is
+# how an SSH-tunnelled server is reached).
+toolbarMode = "viewer"
+
 [browser]
 gatherUsageStats = false

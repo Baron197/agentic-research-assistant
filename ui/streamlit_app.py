@@ -67,12 +67,18 @@ NODE_FILL = {
 GRAPH_NODES = [("planner", "Planner"), ("researcher", "Researcher"),
                ("writer", "Writer"), ("critic", "Critic"),
                ("approval", "Approval?"), ("finalizer", "Finalizer")]
+# Status colours are theme variables (see _theme_css): each theme has its own
+# shade so the text stays readable on light and dark cards alike.
 STATUS_ACCENT = {
-    "complete": "#2f8a3b",
-    "partial": "#d9822b",
-    "awaiting_approval": "#2e6da4",
-    "error": "#c0392b",
+    "complete": "var(--ok)",
+    "partial": "var(--warn)",
+    "awaiting_approval": "var(--info)",
+    "error": "var(--bad)",
 }
+# Graph labels sit on the page background, which CSS variables can't reach
+# inside Graphviz, so each theme gets its own label colours (4.5:1 or better).
+GRAPH_INK = {False: {"taken": "#2e6da4", "idle": "#5d6b79", "revise": "#a85a10"},
+             True: {"taken": "#7fb2e5", "idle": "#98a3b3", "revise": "#f0a04b"}}
 
 st.set_page_config(page_title="Agentic Research Assistant", page_icon="🔎", layout="wide")
 
@@ -101,14 +107,36 @@ for _key in ("q", "max_iter", "budget", "critic", "approval"):
 def _theme_css(dark: bool) -> str:
     """Component styles via CSS variables. The dark block re-points the variables
     AND restyles Streamlit's own surfaces, so a single toggle flips the whole app.
+
+    Every text colour clears WCAG AA (4.5:1) on each surface it is drawn on, in
+    both themes: --ok / --warn / --bad / --info are the status colours, used for
+    text too, so each theme gets its own shade.
     """
     base = """
     <style>
       :root {
         --page-bg:#ffffff; --panel-bg:#f2f6fb; --card-bg:#f7fafd; --tl-bg:#ffffff;
-        --text:#1f2933; --muted:#6b7a89; --border:#e2eaf2; --code-bg:#eef3f8;
-        --stat-default:#1b3a5c; --revise-bg:#fff8ec;
+        --text:#1f2933; --muted:#5d6b79; --border:#e2eaf2; --code-bg:#eef3f8;
+        --stat-default:#1b3a5c; --revise-bg:#fff8ec; --code-fg:#166534;
+        --ok:#23722f; --warn:#a85a10; --bad:#b42318; --info:#2e6da4; --alert-ok-fg:#14532d;
       }
+      /* Streamlit draws captions and slider ticks as the text colour at 60%
+         opacity: too faint on light surfaces, invisible on the dark one. */
+      [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p,
+      [data-testid="stCaptionContainer"] strong, [data-testid="stSliderTickBar"] * {
+        color:var(--muted) !important; opacity:1 !important; }
+      .stApp code { color:var(--code-fg); }
+      /* The "?" help icons: stroked in the light theme's grey at 60% opacity. */
+      [data-testid="stTooltipIcon"] svg { stroke:var(--muted) !important; }
+      [data-testid="stAlertContentSuccess"], [data-testid="stAlertContentSuccess"] p,
+      [data-testid="stAlertContentSuccess"] strong { color:var(--alert-ok-fg) !important; }
+      /* The JSON viewer's Solarized colours are too light on white (3.2:1): the
+         same hues, darker. Dark mode inverts the whole viewer, so they hold there. */
+      [data-testid="stJson"] [style*="color: rgb(38, 139, 210)"] { color:#1d64a8 !important; }
+      [data-testid="stJson"] [style*="color: rgb(108, 113, 196)"] { color:#4b51b0 !important; }
+      [data-testid="stJson"] [style*="color: rgb(42, 161, 152)"] { color:#0f6e66 !important; }
+      [data-testid="stJson"] [style*="color: rgb(133, 153, 0)"] { color:#566600 !important; }
+      [data-testid="stJson"] [style*="color: rgb(220, 50, 47)"] { color:#b42318 !important; }
       .hero { background: linear-gradient(120deg,#1b3a5c 0%,#2e6da4 100%);
         border-radius:16px; padding:20px 26px; margin-bottom:12px; color:#fff; }
       .hero h1 { color:#fff; font-size:1.7rem; margin:0 0 4px 0; font-weight:800; }
@@ -142,7 +170,8 @@ def _theme_css(dark: bool) -> str:
       :root {
         --page-bg:#0e1117; --panel-bg:#161b26; --card-bg:#1b2231; --tl-bg:#1b2231;
         --text:#e6e9ef; --muted:#98a3b3; --border:#2b3344; --code-bg:#232b3a;
-        --stat-default:#cfd8e6; --revise-bg:#2a2418;
+        --stat-default:#cfd8e6; --revise-bg:#2a2418; --code-fg:#e6e9ef;
+        --ok:#4cc26a; --warn:#f0a04b; --bad:#ff7b72; --info:#7fb2e5; --alert-ok-fg:#e6e9ef;
       }
       .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"] {
         background:var(--page-bg); }
@@ -161,8 +190,18 @@ def _theme_css(dark: bool) -> str:
       .stApp [data-baseweb="input"] input, .stApp textarea {
         background:var(--card-bg) !important; color:var(--text) !important;
         border-color:var(--border) !important; }
-      .stApp .stButton > button { background:var(--card-bg); color:var(--text);
-        border:1px solid var(--border); }
+      /* Secondary buttons only (chips, View, downloads): the primary button keeps
+         the theme's blue, so "Run research" still stands out in the dark. */
+      .stApp [data-testid="stBaseButton-secondary"] { background:var(--card-bg);
+        color:var(--text); border:1px solid var(--border); }
+      .stApp [data-testid="stBaseButton-secondary"] p { color:var(--text); }
+      .stApp [data-testid="stBaseButton-primary"] p { color:#ffffff; }
+      [data-testid="stHeader"] button, [data-testid="stHeader"] svg { color:var(--text); }
+      /* Help tooltips render outside the app on Streamlit's light surface. */
+      [data-baseweb="tooltip"] div { background-color:var(--card-bg) !important;
+        color:var(--text) !important; }
+      /* The JSON viewer has no dark palette: invert it, keeping the hues. */
+      [data-testid="stJson"] { filter:invert(0.9) hue-rotate(180deg); }
       .stApp [data-baseweb="tab"] { color:var(--muted); }
       /* Material icons hard-code the light-theme colour on every glyph; relight
          them in dark mode (nav, tabs, buttons) or they vanish on the dark bg. */
@@ -172,8 +211,10 @@ def _theme_css(dark: bool) -> str:
       .stApp [data-testid="stMetricValue"] { color:var(--text); }
       .stApp [data-testid="stMetricLabel"], .stApp [data-testid="stMetricLabel"] p {
         color:var(--muted); }
-      .stApp code { background:var(--code-bg); color:#e6e9ef; }
+      .stApp code { background:var(--code-bg); color:var(--code-fg); }
       .stApp [data-testid="stNumberInputContainer"] { background:var(--card-bg); }
+      .stApp [data-testid="stNumberInputStepDown"], .stApp [data-testid="stNumberInputStepUp"] {
+        background:var(--card-bg); color:var(--text); }
     </style>
     """
 
@@ -421,7 +462,7 @@ def pick_example(text: str) -> None:
 
 # ----------------------------------------------------------------- render helpers
 def coverage_color(pct: float) -> str:
-    return "#2f8a3b" if pct >= 0.999 else "#d9822b" if pct >= 0.8 else "#c0392b"
+    return "var(--ok)" if pct >= 0.999 else "var(--warn)" if pct >= 0.8 else "var(--bad)"
 
 
 def stat_card(label: str, value: str, accent: str = "var(--stat-default)") -> str:
@@ -456,7 +497,8 @@ def timeline_html(trace: list[dict[str, Any]]) -> str:
     return '<div class="tl">' + "".join(rows) + "</div>"
 
 
-def agent_graph_dot(result: dict[str, Any], trace: list[dict[str, Any]]) -> str:
+def agent_graph_dot(result: dict[str, Any], trace: list[dict[str, Any]],
+                    dark: bool = False) -> str:
     """Graphviz DOT of the pipeline with THIS run's executed path highlighted."""
     runs: dict[str, int] = {}
     toks: dict[str, int] = {}
@@ -470,6 +512,7 @@ def agent_graph_dot(result: dict[str, Any], trace: list[dict[str, Any]]) -> str:
     revised = int(result.get("iterations", 0)) > 0
     accept = "approval" if approval_ran else "finalizer"
     TAKEN, GREY = '"#2e6da4"', '"#c9cfd6"'
+    ink = GRAPH_INK[dark]
 
     def node_stmt(key: str, label: str) -> str:
         accent = NODE_STYLE.get(key, ("", "#888"))[1]
@@ -480,7 +523,7 @@ def agent_graph_dot(result: dict[str, Any], trace: list[dict[str, Any]]) -> str:
             return (f'{key} [label="{label}\\n{sub}", fillcolor="{NODE_FILL[key]}", '
                     f'color="{accent}", penwidth=2, fontcolor="#26313c"];')
         return (f'{key} [label="{label}", fillcolor="white", color="#cdd3da", '
-                f'fontcolor="#9aa4ad"];')
+                f'fontcolor="{GRAPH_INK[False]["idle"]}"];')
 
     def edge(a: str, b: str, taken: bool, label: str = "") -> str:
         color = TAKEN if taken else GREY
@@ -488,7 +531,8 @@ def agent_graph_dot(result: dict[str, Any], trace: list[dict[str, Any]]) -> str:
         if not taken:
             parts.append("style=dashed")
         if label:
-            parts.append(f'label="{label}", fontsize=9, fontcolor={color}')
+            parts.append(f'label="{label}", fontsize=9, '
+                         f'fontcolor="{ink["taken"] if taken else ink["idle"]}"')
         return f'{a} -> {b} [{", ".join(parts)}];'
 
     d = ["digraph G {", "rankdir=TB;", 'bgcolor="transparent";',
@@ -524,8 +568,10 @@ def agent_graph_dot(result: dict[str, Any], trace: list[dict[str, Any]]) -> str:
     return "\n".join(d)
 
 
-def pipeline_dot() -> str:
-    """Static structural diagram of the pipeline (for the About page)."""
+def pipeline_dot(dark: bool = False) -> str:
+    """Static structural diagram of the pipeline (for the Guide page)."""
+    ink = GRAPH_INK[dark]
+
     def node_stmt(key: str, label: str) -> str:
         return (f'{key} [label="{label}", fillcolor="{NODE_FILL[key]}", '
                 f'color="{NODE_STYLE[key][1]}", penwidth=2, fontcolor="#26313c"];')
@@ -542,11 +588,11 @@ def pipeline_dot() -> str:
         "START -> planner;", "planner -> researcher;", "researcher -> writer;",
         "writer -> critic;",
         'critic -> researcher [label="revise", fontsize=9, color="#d9822b", '
-        'fontcolor="#d9822b", style=dashed];',
-        'critic -> approval [label="accept", fontsize=9];',
+        f'fontcolor="{ink["revise"]}", style=dashed];',
+        f'critic -> approval [label="accept", fontsize=9, fontcolor="{ink["taken"]}"];',
         "approval -> finalizer;", "finalizer -> END;",
         'writer -> finalizer [label="budget", fontsize=8, color="#c9cfd6", '
-        'fontcolor="#9aa4ad", style=dashed, constraint=false];',
+        f'fontcolor="{ink["idle"]}", style=dashed, constraint=false];',
     ]
     d.append("}")
     return "\n".join(d)
@@ -629,7 +675,7 @@ def render_result(r: dict[str, Any], detail: dict[str, Any]) -> None:
     report = r["report"]
     cov = float(r["citation_coverage"])
     band = "".join([
-        stat_card("Status", r["status"], STATUS_ACCENT.get(r["status"], "#1b3a5c")),
+        stat_card("Status", r["status"], STATUS_ACCENT.get(r["status"], "var(--stat-default)")),
         stat_card("Iterations", str(r["iterations"])),
         stat_card("Tool calls", str(r["tool_calls"])),
         stat_card("Tokens", f"{r['tokens']:,}"),
@@ -713,14 +759,14 @@ def render_result(r: dict[str, Any], detail: dict[str, Any]) -> None:
             rows = []
             for d in docs:
                 is_used = d["url"] in used
-                dot = "#2f8a3b" if is_used else "#cdd3da"
-                txt = "var(--text)" if is_used else "#9aa4ad"
+                dot = "var(--ok)" if is_used else "var(--muted)"
+                txt = "var(--text)" if is_used else "var(--muted)"
                 rows.append(
                     f'<div style="padding:5px 2px">'
                     f'<span style="color:{dot};font-size:1.15rem">&#9679;</span> '
                     f'<span style="color:{txt};font-weight:{600 if is_used else 400}">'
                     f'{html.escape(d["title"])}</span> '
-                    f'<code style="color:#7a8896;font-size:0.82rem">{html.escape(d["url"])}</code>'
+                    f'<code style="color:var(--muted);font-size:0.82rem">{html.escape(d["url"])}</code>'
                     f'<span style="color:{txt};font-size:0.78rem"> — '
                     f'{"used" if is_used else "not used"}</span></div>'
                 )
@@ -742,7 +788,8 @@ def render_result(r: dict[str, Any], detail: dict[str, Any]) -> None:
                 "taken. The `revise` edge (critic → researcher) lights up only when "
                 "the critic sent the draft back for another pass."
             )
-            st.graphviz_chart(agent_graph_dot(r, trace), use_container_width=False)
+            st.graphviz_chart(agent_graph_dot(r, trace, dark=bool(ss.get("dark", False))),
+                             use_container_width=False)
         else:
             st.caption("Graph unavailable (could not load the run detail).")
 
@@ -760,9 +807,9 @@ def render_compare(cmp: dict[str, Any]) -> None:
         fb = f"{b:.0%}" if pct else f"{b:,}"
         delta = a - b
         if delta == 0:
-            dc, ds = "#9aa4ad", "±0"
+            dc, ds = "var(--muted)", "±0"
         else:
-            dc = "#2f8a3b" if (delta > 0) == higher_better else "#c0392b"
+            dc = "var(--ok)" if (delta > 0) == higher_better else "var(--bad)"
             ds = f"{delta:+.0%}" if pct else f"{delta:+,}"
         cell = "padding:6px 10px;text-align:center;font-weight:700"
         return (f'<tr><td style="padding:6px 10px">{label}</td>'
@@ -789,7 +836,7 @@ def render_compare(cmp: dict[str, Any]) -> None:
 
     for col, res, title, tint in zip(
         st.columns(2), (on, off), ("Critic ON", "Critic OFF"),
-        ("#2f8a3b", "#d9822b"), strict=True,
+        ("var(--ok)", "var(--warn)"), strict=True,
     ):
         with col:
             cov = float(res["citation_coverage"])
@@ -1096,7 +1143,8 @@ def page_guide() -> None:
                 "- **Guide** — this page."
             )
         with right:
-            st.graphviz_chart(pipeline_dot(), use_container_width=False)
+            st.graphviz_chart(pipeline_dot(dark=bool(ss.get("dark", False))),
+                             use_container_width=False)
             st.caption("The pipeline. **Real mode → What a real run does** describes each "
                        "step.")
 
