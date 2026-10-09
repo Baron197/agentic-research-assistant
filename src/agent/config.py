@@ -138,6 +138,29 @@ class Settings(BaseSettings):
             return self.llm_provider == "openai"
         return self.evidence_ranking == "semantic"
 
+    def mode_summary(self) -> dict[str, str]:
+        """What a run uses, in plain words, for the UI's mode badge and Guide (no secrets).
+
+        ``llm``: the paid model's name, or "rule-based" for the keyless fake.
+        ``sources``: "web" (live search) or "corpus" (local documents).
+        ``corpus``: "bundled" (the shipped RAG documents) or "custom" (CORPUS_DIR
+        points elsewhere, e.g. your own notes); only used when sources is "corpus".
+        ``evidence``: how each page's passage is picked, "meaning" or "words".
+        """
+        if self.agent_backend == "dspy":
+            llm = f"{self.dspy_model} (DSPy)"
+        elif self.llm_provider == "openai":
+            llm = self.openai_model
+        else:
+            llm = "rule-based"
+        bundled = Path(self.corpus_dir).resolve() == (PROJECT_ROOT / "data" / "corpus").resolve()
+        return {
+            "llm": llm,
+            "sources": "web" if self.search_provider == "web" else "corpus",
+            "corpus": "bundled" if bundled else "custom",
+            "evidence": "meaning" if self.uses_embeddings else "words",
+        }
+
     @property
     def is_keyless(self) -> bool:
         """True when no external service is configured (pure offline mode)."""

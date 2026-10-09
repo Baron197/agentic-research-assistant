@@ -51,3 +51,18 @@ def test_compare_shows_positive_delta():
     agg = report["aggregate"]
     assert agg["coverage_on"] >= agg["coverage_off"]
     assert agg["coverage_delta"] > 0
+
+
+def test_results_title_names_the_mode_it_was_run_in():
+    # A real-mode results file must not be labelled "keyless".
+    from eval.run_eval import render_single_md
+
+    agg = {k: 0 for k in ["n_tasks", "n_in_corpus", "citation_coverage", "source_validity",
+                          "support_rate", "point_coverage", "avg_tool_calls", "avg_tokens",
+                          "avg_steps", "avg_latency_ms", "avg_cost_usd", "total_cost_usd",
+              "abstention_accuracy", "faithfulness"]}
+    keyless = render_single_md({"aggregate": agg, "rows": [], "keyless": True})
+    real = render_single_md({"aggregate": agg, "rows": [], "keyless": False, "setup": {
+        "llm": "gpt-4o-mini", "sources": "web", "evidence": "meaning"}})
+    assert keyless.startswith("# Evaluation Results (keyless)")
+    assert real.startswith("# Evaluation Results (real mode: gpt-4o-mini, web sources")

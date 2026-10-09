@@ -93,8 +93,8 @@ git push -u origin main
   build takes a couple of minutes.
 
 That's it — you get a `https://<your-app>.streamlit.app` link. The corpus (`data/`) ships
-in the repo, so search works immediately; the sidebar health chip will read
-`API up · vX.Y.Z · keyless=True` even though it's all one process.
+in the repo, so search works immediately; the sidebar's mode box will read **Keyless demo** and
+`In-process backend`, because it's all one process.
 
 **Notes**
 - **No configuration needed.** With no `API_URL` reachable, the UI auto-selects the embedded
@@ -517,8 +517,8 @@ Cloud Shell, so name the account and project explicitly:
 gcloud auth login                  # once — sign in as the account that owns the project
 gcloud run services proxy ara-real --region us-central1 --port 8501 --project YOUR_PROJECT_ID
 ```
-Leave that running and open **http://localhost:8501**. The sidebar chip should read
-`keyless=False`. `Ctrl+C` closes it. As the project owner you already hold `run.invoker`; to let
+Leave that running and open **http://localhost:8501**. The sidebar's mode box should read
+**Real mode · gpt-4o-mini** and *live web search*. `Ctrl+C` closes it. As the project owner you already hold `run.invoker`; to let
 someone else in, grant them `roles/run.invoker` on the service. (If you have several Google accounts
 in `gcloud`, `gcloud auth list` shows which is active; add `--account you@gmail.com` to pick one.)
 

@@ -91,13 +91,17 @@ $py = ".\.venv\Scripts\python.exe"
 aren't available on a Windows laptop without `make`.)*
 
 ### 4. Verify real mode is actually on
-- `GET /health` returns `keyless=false` (it's `true` only when **all** providers are fake).
+- `GET /health` returns `keyless=false` (it's `true` only when **all** providers are fake), and its
+  `mode` names the model, the sources and how evidence is picked. The UI's sidebar shows the same as a
+  **Real mode** box.
 - A completed run reports a **non-zero USD cost** and real token counts — keyless always shows `$0.0000`.
 - Citations point at real sources (Recipe B: real URLs; Recipe A: your own filenames).
 
 ```powershell
 & $py -c "import httpx; print(httpx.get('http://127.0.0.1:8000/health').json())"
-# -> {'status': 'ok', 'version': '0.1.0', 'keyless': False}
+# -> {'status': 'ok', 'version': '0.1.0', 'keyless': False,
+#     'mode': {'llm': 'gpt-4o-mini', 'sources': 'web', 'corpus': 'bundled', 'evidence': 'meaning'},
+#     'limits': {'token_budget': 60000, 'max_iterations': 2}}
 ```
 
 ### 5. What a real run actually looks like (measured, not illustrative)
@@ -197,7 +201,9 @@ run_id=… status=complete iterations=0 tool_calls=17 tokens=25273 usd=$0.0101 l
 
 ## Evaluating in real mode — measured results
 
-The full 12-task evaluation was run three ways. **These are real recomputed numbers**, not estimates:
+The full 12-task evaluation was run three ways with `gpt-4o-mini`, most recently on **2026-10-09**
+with the current evidence pipeline (trafilatura article text, passages ranked by meaning). **These
+are real measured numbers**, not estimates:
 
 ```powershell
 # A — real LLM over the fixed local corpus (comparable to the keyless baseline)
@@ -211,47 +217,50 @@ $env:LLM_PROVIDER="openai"; $env:SEARCH_PROVIDER="web"; $env:FETCH_PROVIDER="htt
 
 | Metric | Keyless (baseline) | **A — real LLM / local corpus** | **B — real LLM / live web** |
 |---|---|---|---|
-| `citation_coverage` | 1.00 | **1.00** | 0.90 ¹ |
+| `citation_coverage` | 1.00 | **1.00** | **1.00** |
 | `source_validity` | 1.00 | **1.00** | **1.00** ✅ |
-| `support_rate` | 1.00 | 0.901 ² | 0.854 ² |
-| `point_coverage` | 0.90 | 0.833 | 0.60 ³ |
-| `abstention_accuracy` | 1.00 | **1.00** | 0.00 ⁴ |
-| avg tool calls | 8.9 | 17.1 | 17.6 |
-| avg tokens | 5,343 ⁵ | 3,995 | 28,885 |
-| avg latency | ~8 ms | 12.3 s | 31.5 s |
-| **cost (12 tasks)** ⁶ | **$0.00** | **≈ $0.01** | **≈ $0.02** |
+| `support_rate` | 1.00 | 0.927 ¹ | 1.00 ¹ |
+| `point_coverage` | 0.90 | 0.867 | 0.667 ² |
+| `abstention_accuracy` | 1.00 | **1.00** | 0.00 ³ |
+| avg tool calls | 8.9 | 16.5 | 18.5 |
+| avg tokens | 5,343 ⁴ | 12,263 | 19,256 |
+| avg latency | ~10 ms | 15.6 s | 33.5 s |
+| avg cost per task ⁵ | **$0.00** | **$0.00135** | **$0.00155** |
+| **cost (all 12 tasks)** ⁵ | **$0.00** | **$0.0171** | **$0.0188** |
 
 **The headline: `source_validity` stayed at 1.00 in all three modes.** The no-fabricated-sources
 guarantee is structural (`guardrails.py::enforce_citations`) — it does not depend on the model, the
 provider, or the corpus. That is the number worth quoting.
 
-¹ **Not "10% of claims were uncited."** Nine of ten in-corpus tasks scored exactly 1.00; one (`T02`)
-produced an **empty report**, and `citation_coverage` returns `0.0` for a report with no claims — so
-the mean is 9/10. Every claim the system actually made was cited. See the `T02` note below.
-
-² **The metric is lexical, not semantic.** `support_rate` uses keyword overlap
+¹ **The metric is lexical, not semantic.** `support_rate` uses keyword overlap
 (`textutil.py::keyword_overlap` ≥ 0.3). A real LLM *paraphrases* its sources, so a faithful claim can
-score below the threshold. The drop measures the metric's bluntness at least as much as the model's
-faithfulness — an LLM-judge / NLI check is the honest upgrade.
+score below the threshold (A: 0.927). It cuts both ways: evidence passages are now a few sentences
+long, which gives a claim more words to overlap with, so B's 1.00 reflects the metric's leniency as
+much as the model's faithfulness. An LLM-judge / NLI check is the honest upgrade.
 
-³ `expected_points` in `eval/tasks.jsonl` are phrased from the **bundled corpus**. Live web pages word
+² `expected_points` in `eval/tasks.jsonl` are phrased from the **bundled corpus**. Live web pages word
 things differently, so this metric is not meaningful in web mode.
 
-⁴ **Expected, and not a regression.** `T11` ("capital of France") and `T12` ("sourdough") are marked
+³ **Expected, and not a regression.** `T11` ("capital of France") and `T12` ("sourdough") are marked
 `in_corpus: false` to test abstention — but they are only unanswerable *relative to the local corpus*.
-On the live web both are trivially answerable, and the assistant answered them (5 and 7 cited claims).
-**Abstention is corpus-relative by design.** Evaluate over a fixed corpus (mode A) for comparable numbers.
+On the live web both are trivially answerable, and the assistant answered them (10 and 9 cited
+claims). **Abstention is corpus-relative by design.** Evaluate over a fixed corpus (mode A) for
+comparable numbers.
 
-⁵ Different measurement bases: keyless charges an *estimate* (`approx_tokens`, ~4 chars/token) for
-every step, while real mode charges the **actual** `usage.total_tokens` for LLM calls. Don't read the
-keyless/real token columns as like-for-like.
+⁴ Different measurement bases: keyless charges an *estimate* (`approx_tokens`, ~4 chars/token) for
+every step, while real mode charges the **actual** usage of the LLM and embedding calls (about 6,100
+embedding tokens per task over the corpus, 11,800 on the web) plus an estimate for gathered text.
+Don't read the keyless/real token columns as like-for-like.
 
-⁶ **Estimated, not billed totals.** The eval records tokens but not USD. These figures price each
-task's tokens at the cost per token measured on single runs with the corrected tracker (≈ $0.23 per
-1M run tokens over the local corpus, ≈ $0.19 on the live web). The exception is web `T02`: its
-210,941 tokens were almost all one fetched page that never reached the LLM (see below), so it counts
-as its planner call only. An earlier version of this table said ~$0.02 / ~$0.12. That applied the
-old blended rate to every token, T02's included.
+⁵ **Measured:** the eval records each run's cost as the tracker priced it at list prices (the tracker
+matched OpenAI's raw usage exactly when checked). The average covers the 10 in-corpus tasks, like the
+other avg rows; the total covers all 12 runs. Embeddings were $0.0014 (A) and $0.0029 (B) of those
+totals.
+
+**Before the October 2026 evidence changes** (tags stripped from pages, evidence picked by word
+overlap) the same evaluation scored, on the web: `citation_coverage` 0.90 (one empty report, `T02`,
+see below), `support_rate` 0.854, `point_coverage` 0.60, 28,885 tokens and 31.5 s per task; over the
+corpus: `support_rate` 0.901, `point_coverage` 0.833, 3,995 tokens and 12.3 s per task.
 
 ### The critic A/B, re-run with a real model
 

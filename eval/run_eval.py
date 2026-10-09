@@ -89,6 +89,7 @@ def evaluate_single(tasks: list[dict[str, Any]], settings: Settings) -> dict[str
             "tokens": result.tokens,
             "steps": len(result.trace),
             "latency_ms": result.latency_ms,
+            "usd": round(result.usd, 6),
         }
         rows.append(row)
 
@@ -105,6 +106,10 @@ def evaluate_single(tasks: list[dict[str, Any]], settings: Settings) -> dict[str
         "avg_tokens": _mean([float(r["tokens"]) for r in in_rows]),
         "avg_steps": _mean([float(r["steps"]) for r in in_rows]),
         "avg_latency_ms": _mean([r["latency_ms"] for r in in_rows]),
+        # What the runs cost, as the tracker priced them ($0 keyless): the average
+        # matches the other avg_* (in-corpus tasks); the total is every task's run.
+        "avg_cost_usd": round(statistics.mean([r["usd"] for r in in_rows]), 6) if in_rows else 0.0,
+        "total_cost_usd": round(sum(r["usd"] for r in rows), 6),
         # 0.0 would read as "always fails to abstain"; be explicit when the task
         # set simply contains no out-of-corpus checks.
         "abstention_accuracy": (
@@ -113,7 +118,8 @@ def evaluate_single(tasks: list[dict[str, Any]], settings: Settings) -> dict[str
         ),
         "faithfulness": _faithfulness(settings),
     }
-    return {"mode": "single", "rows": rows, "aggregate": aggregate}
+    return {"mode": "single", "rows": rows, "aggregate": aggregate,
+            "keyless": settings.is_keyless, "setup": settings.mode_summary()}
 
 
 def _faithfulness(settings: Settings) -> str:
@@ -159,14 +165,23 @@ def evaluate_compare(tasks: list[dict[str, Any]], base: Settings) -> dict[str, A
 # --- rendering --------------------------------------------------------------
 def render_single_md(report: dict[str, Any]) -> str:
     agg = report["aggregate"]
-    lines = ["# Evaluation Results (keyless)\n",
-             "_All metrics validate structure/plumbing on the deterministic fake "
-             "path. `faithfulness` (LLM-as-judge) is not implemented yet._\n",
-             "## Aggregate\n",
+    if report.get("keyless", True):
+        title = "# Evaluation Results (keyless)\n"
+        note = ("_All metrics validate structure/plumbing on the deterministic fake "
+                "path. `faithfulness` (LLM-as-judge) is not implemented yet._\n")
+    else:
+        s = report.get("setup", {})
+        title = (f"# Evaluation Results (real mode: {s.get('llm', '?')}, "
+                 f"{s.get('sources', '?')} sources, evidence by {s.get('evidence', '?')})\n")
+        note = ("_A real model is not deterministic: re-runs vary. `support_rate` and "
+                "`point_coverage` are lexical; `faithfulness` (LLM-as-judge) is not "
+                "implemented yet._\n")
+    lines = [title, note, "## Aggregate\n",
              "| metric | value |", "|---|---|"]
     for k in ["n_tasks", "n_in_corpus", "citation_coverage", "source_validity",
               "support_rate", "point_coverage", "avg_tool_calls", "avg_tokens",
-              "avg_steps", "avg_latency_ms", "abstention_accuracy", "faithfulness"]:
+              "avg_steps", "avg_latency_ms", "avg_cost_usd", "total_cost_usd",
+              "abstention_accuracy", "faithfulness"]:
         lines.append(f"| {k} | {agg[k]} |")
     lines += ["\n## Per task\n",
               "| id | in_corpus | claims | cite_cov | src_valid | support | "
@@ -343,7 +358,8 @@ def main(argv: list[str]) -> int:
           f"source_validity={agg['source_validity']} support_rate={agg['support_rate']} "
           f"point_coverage={agg['point_coverage']} abstention_accuracy={agg['abstention_accuracy']}")
     print(f"[eval] avg_tool_calls={agg['avg_tool_calls']} avg_tokens={agg['avg_tokens']} "
-          f"avg_steps={agg['avg_steps']} avg_latency_ms={agg['avg_latency_ms']}")
+          f"avg_steps={agg['avg_steps']} avg_latency_ms={agg['avg_latency_ms']} "
+          f"avg_cost_usd={agg['avg_cost_usd']} total_cost_usd={agg['total_cost_usd']}")
     print(f"[eval] wrote {out_dir/'metrics.md'}")
 
     return _apply_gate(agg["citation_coverage"], args.min_citation_coverage)

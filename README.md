@@ -5,7 +5,7 @@
 [![Live demo](https://img.shields.io/badge/Live%20demo-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://agentic-research-assistant-ra3rebpqgkqvyyw5wryrma.streamlit.app/)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
 [![CI](https://github.com/Baron197/agentic-research-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/Baron197/agentic-research-assistant/actions/workflows/ci.yml)
-[![tests](https://img.shields.io/badge/tests-116%20passing-brightgreen.svg)](#testing--ci)
+[![tests](https://img.shields.io/badge/tests-119%20passing-brightgreen.svg)](#testing--ci)
 [![Lint: ruff](https://img.shields.io/badge/lint-ruff-46a2f1.svg)](https://github.com/astral-sh/ruff)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Keyless](https://img.shields.io/badge/runs-keyless%20%240.00-brightgreen.svg)](#quickstart-keyless)
@@ -228,7 +228,10 @@ Five pages (native `st.navigation`, shared state across pages):
 - **History** — a browsable table of past runs; reopen any into all six tabs.
 - **Observability** — the aggregate dashboard (total runs, avg cost, avg/p95 latency,
   avg coverage) fed by `GET /metrics`.
-- **Guide** — an in-app, tabbed explainer of the app and every metric.
+- **Guide** — an in-app explainer in seven tabs (getting started, real mode, reading a report,
+  observability, evaluation, concepts, FAQ). It reads the backend's mode, so a real-mode instance
+  explains its model, sources, measured cost and time, limits, trust and privacy, while the
+  keyless demo explains the bundled corpus. The sidebar shows the same mode at a glance.
 
 Headline touches: **colour-coded metric cards** (status + coverage go green / amber /
 red), and the **Agent graph** tab renders the compiled LangGraph pipeline with *this
@@ -435,7 +438,7 @@ data/corpus/         11 seed docs (the "web" FakeSearch/FakeFetch operate over)
 eval/
   tasks.jsonl        12 golden tasks (incl. 2 out-of-corpus abstention checks)
   run_eval.py        metrics + critic A/B + CI gate
-tests/               deterministic, keyless end-to-end + unit tests (116; 90 in keyless CI, 26 need optional extras)
+tests/               deterministic, keyless end-to-end + unit tests (119; 93 in keyless CI, 26 need optional extras)
 docs/screenshots/    UI screenshots used in this README
 Dockerfile  docker-compose.yml  .dockerignore  Makefile  pyproject.toml  requirements.txt
 .env.example  .gitattributes  .github/workflows/ci.yml
@@ -444,7 +447,7 @@ README.md  ARCHITECTURE.md  DEPLOYMENT.md  REAL_MODE.md  LICENSE
 
 ## Testing & CI
 
-`make test` runs a fast, deterministic, keyless suite of **116 tests** (graph
+`make test` runs a fast, deterministic, keyless suite of **119 tests** (graph
 end-to-end, no-fabricated-sources, the one-revise critic loop + iteration cap,
 tiny-budget → `partial`, the **parallel researcher fan-out** — proving a
 concurrent run is byte-identical to a serial one — the **depth** knob, the
@@ -461,9 +464,9 @@ Twenty-six of them exercise **optional** extras
 (19 the MCP server — including its schemas, its real-mode cost guard, and a
 stdout-purity check that protects the stdio transport — 6 the DSPy backend, 1
 PDF-corpus reading) and do not run unless those extras are installed. So a
-default keyless install, and CI, report **90 passed, 3 skipped** — the three
+default keyless install, and CI, report **93 passed, 3 skipped** — the three
 optional groups skip as whole units — while a machine with the extras present
-runs all **116**, still keyless via fakes / `DummyLM`. CI
+runs all **119**, still keyless via fakes / `DummyLM`. CI
 (`.github/workflows/ci.yml`) runs `ruff check .` → `pytest -q` → the eval gate,
 all keyless with no secrets.
 

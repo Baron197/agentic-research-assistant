@@ -89,6 +89,8 @@ def health() -> dict[str, Any]:
     settings = get_settings()
     return {
         "status": "ok", "version": __version__, "keyless": settings.is_keyless,
+        # Model / sources / evidence ranking, for the UI's mode badge and Guide.
+        "mode": settings.mode_summary(),
         # In real mode these are the most a request may ask for (cap_request);
         # the UI sizes its run-settings inputs from them.
         "limits": {k: getattr(settings, k) for k in ("token_budget", "max_iterations")},

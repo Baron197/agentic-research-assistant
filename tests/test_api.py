@@ -133,6 +133,25 @@ def test_health_reports_the_run_limits(client):
     assert limits == {"token_budget": 60_000, "max_iterations": 2}
 
 
+def test_health_describes_the_mode(client):
+    assert client.get("/health").json()["mode"] == {
+        "llm": "rule-based", "sources": "corpus", "corpus": "bundled", "evidence": "words"}
+
+
+def test_mode_summary_for_real_configurations():
+    from agent.config import Settings
+
+    web = Settings(_env_file=None, llm_provider="openai", openai_api_key="x",
+                   search_provider="web", search_api_key="x", fetch_provider="http")
+    assert web.mode_summary() == {"llm": "gpt-4o-mini", "sources": "web", "corpus": "bundled",
+                                  "evidence": "meaning"}
+    # Real LLM over your own documents (CORPUS_DIR), ranked by words.
+    own = Settings(_env_file=None, llm_provider="openai", openai_api_key="x",
+                   evidence_ranking="lexical", corpus_dir="C:/my-notes")
+    assert own.mode_summary() == {"llm": "gpt-4o-mini", "sources": "corpus", "corpus": "custom",
+                                  "evidence": "words"}
+
+
 def test_removed_claims_are_returned_and_persisted(client):
     data = client.post("/research", json={"question": "What is reranking?"}).json()
     assert len(data["removed_claims"]) == 1  # the keyless writer's planted claim
