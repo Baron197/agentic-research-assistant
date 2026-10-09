@@ -160,3 +160,79 @@ def test_real_mode_factories_wire_up_without_network():
     assert isinstance(get_search(real), OpenWebSearch)
     assert isinstance(get_fetch(real), HttpFetch)
     assert isinstance(get_llm(real), OpenAILLM)
+
+
+# --- HttpFetch text extraction (no network: readable_text works on raw HTML) --
+_ARTICLE = ("Cosine similarity compares the angle between two embedding vectors. "
+            "The dot product also reflects their length, and Euclidean distance "
+            "measures how far apart the two points are. ") * 2
+_PAGE = (
+    "<html><head><title>T</title><style>.nav{color:red}</style>"
+    '<script type="application/ld+json">{"@context": "https://schema.org"}</script></head>'
+    "<body><!-- tracking --><nav>Home | Blog</nav><p>" + _ARTICLE + "</p>"
+    "<p>Fish &amp; chips</p><script>window.x = 1;</script></body></html>"
+)
+
+
+def test_readable_text_uses_trafilatura_when_installed(monkeypatch):
+    import sys
+    import types
+
+    from agent.tools.fetch import readable_text
+
+    fake = types.ModuleType("trafilatura")
+    fake.extract = lambda raw, **kw: _ARTICLE
+    monkeypatch.setitem(sys.modules, "trafilatura", fake)
+    assert readable_text(_PAGE) == _ARTICLE
+
+
+def test_readable_text_fallback_drops_code_and_markup(monkeypatch):
+    # Without trafilatura the fallback must not leave CSS, JavaScript or JSON-LD
+    # in the text: those became the junk "evidence" seen in real-mode runs.
+    import sys
+
+    from agent.tools.fetch import readable_text
+
+    monkeypatch.setitem(sys.modules, "trafilatura", None)  # -> ImportError
+    text = readable_text(_PAGE)
+    assert "Cosine similarity compares the angle" in text
+    assert "Fish & chips" in text  # entities decoded
+    for junk in ("color:red", "schema.org", "window.x", "tracking", "<"):
+        assert junk not in text
+
+
+def test_page_without_article_text_is_refused(monkeypatch):
+    # A video page's extract is just its footer links; refusing it makes the
+    # researcher move on to the next search result instead of quoting it.
+    import sys
+    import types
+
+    from agent.tools.fetch import NoReadableText, readable_text
+
+    fake = types.ModuleType("trafilatura")
+    fake.extract = lambda raw, **kw: "About Press Copyright Contact us Creators"
+    monkeypatch.setitem(sys.modules, "trafilatura", fake)
+    with pytest.raises(NoReadableText):
+        readable_text(_PAGE)
+
+    fake.extract = lambda raw, **kw: None  # trafilatura found no main content
+    with pytest.raises(NoReadableText):
+        readable_text(_PAGE)
+
+
+def test_video_hosts_are_skipped_before_fetching():
+    from agent.tools.fetch import HttpFetch, NoReadableText
+
+    for url in ("https://www.youtube.com/watch?v=x", "https://youtu.be/x",
+                "https://m.youtube.com/watch?v=x", "https://vimeo.com/1"):
+        with pytest.raises(NoReadableText):
+            HttpFetch._check_has_text(url)
+    for url in ("https://notyoutube.com/a", "https://en.wikipedia.org/wiki/Embedding"):
+        HttpFetch._check_has_text(url)  # no error
+
+
+def test_http_fetch_identifies_itself_with_a_contact_url():
+    # Wikipedia's robot policy answers a bare product name with 403.
+    from agent.tools.fetch import HttpFetch
+
+    assert "+https://github.com/" in HttpFetch._USER_AGENT

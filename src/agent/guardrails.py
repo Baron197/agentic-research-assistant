@@ -6,15 +6,19 @@ applied unconditionally in the finalizer (independent of the critic), and is the
 behaviour proven by the no-fabricated-sources test.
 
 Also here: a validate-and-retry wrapper for structured LLM calls, budget
-accounting helpers, an input-length cap, and the iteration cap.
+accounting helpers, an input-length cap, the iteration cap, and the per-request
+spend ceiling.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from .schemas import Budget, Citation, Evidence, Report
+
+if TYPE_CHECKING:
+    from .config import Settings
 
 T = TypeVar("T")
 
@@ -52,6 +56,24 @@ def can_iterate(iteration: int, max_iterations: int) -> bool:
 def within_budget(budget: Budget) -> bool:
     """True while the run is still under its token budget."""
     return not budget.exceeded
+
+
+# The request fields that decide how much a run may spend.
+SPEND_LIMITS = ("token_budget", "max_iterations")
+
+
+def cap_request(settings: Settings, overrides: dict[str, Any]) -> dict[str, Any]:
+    """Keep a request's spend overrides at or below the server's own settings.
+
+    In real mode every token is paid for by whoever runs the server, so its
+    ``TOKEN_BUDGET`` and ``MAX_ITERATIONS`` are a ceiling: a request (the UI's
+    sidebar, an API call) may lower them but never raise them. Keyless runs cost
+    nothing, so there they are only defaults and a request may go higher.
+    """
+    if settings.is_keyless:
+        return overrides
+    return {k: min(v, getattr(settings, k)) if k in SPEND_LIMITS else v
+            for k, v in overrides.items()}
 
 
 # --- Structured-output validate & retry -------------------------------------

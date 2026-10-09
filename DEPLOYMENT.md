@@ -414,7 +414,8 @@ months only).
   can ever spend is the balance you already have. That is your real hard limit.
 - **Tavily:** the free plan (1,000 credits/month) needs no card — key from app.tavily.com.
 - **`TOKEN_BUDGET`** (e.g. `40000`) caps tokens per run inside the app; runs that hit it end
-  `partial` instead of spending more.
+  `partial` instead of spending more. In real mode it is a ceiling, as is `MAX_ITERATIONS`: the
+  UI's sidebar and API requests can lower them, never raise them.
 - **One OpenAI key per deployment.** Create a separate key for each place you deploy (e.g. named
   `ara-cloudrun`, `ara-oracle`, `ara-aws`) so you can revoke one without breaking the others, and see which
   deployment is spending.
@@ -586,6 +587,9 @@ docker compose up -d --build
 - **`ARA_BIND=127.0.0.1` is the important line.** It publishes ports 8000/8501 on the VM's
   loopback only. Docker-published ports **bypass the host firewall** (iptables/ufw), so binding to
   loopback is what actually keeps the app private — even if a port gets opened by mistake later.
+- The image includes `trafilatura`, which pulls the article text out of each fetched page.
+  Without it, evidence snippets are mostly the page's CSS, scripts and menus, and a run costs
+  several times more (see REAL_MODE.md §6).
 
 **3. Check it's really in real mode** (still on the VM):
 ```bash
@@ -598,6 +602,19 @@ ssh -i C:\path\to\your_oracle.key -N -L 8501:localhost:8501 ubuntu@PUBLIC_IP
 ```
 Leave it running and open **http://localhost:8501**. `-N` means "tunnel only, no shell";
 `Ctrl+C` closes it.
+
+**Updating later** (new code from GitHub): run history lives in a Docker volume and both
+containers restart on their own after a reboot, so an update is just:
+```bash
+cd ~/ara && git pull && docker compose up -d --build
+```
+The history survives it; only `docker compose down -v` deletes it. *Installed before October
+2026?* Back then the history lived inside the API container, which this update replaces, so copy it
+out first and back in afterwards:
+```bash
+docker compose cp api:/app/runs ~/runs-backup        # before git pull
+docker compose cp ~/runs-backup/. api:/app/runs/     # after the update is up
+```
 
 > **Keeping the VM — read this.** Oracle may **reclaim idle Always-Free instances**: a VM counts
 > as idle if, over 7 days, CPU (95th percentile), network **and** memory all stay under 20%. A
@@ -699,8 +716,10 @@ Then open **http://localhost:8501**.
 
 - **SSH suddenly times out?** Your home or mobile IP changed, so the *My IP* rule no longer
   matches: EC2 → Security groups → edit the SSH rule → source **My IP** again.
-- **Stop vs terminate.** Stopping pauses the instance hours, but the disk and the public IP keep
-  drawing credits, and the public IP **changes** on the next start. Terminate it when you're done.
+- **Stop vs terminate.** Stopping pauses the instance hours, but the disk keeps drawing credits.
+  On **Start**, the app and its run history come back by themselves (the containers restart on
+  their own), but the public IP **changes**, so copy the new one for SSH. Terminate it when you're
+  done.
 - **Watch the credits:** the *Cost and usage* widget on the Console Home shows the balance and the
   days left.
 - **When the six months end**, AWS suspends the account and keeps its data for 90 days; upgrading
@@ -738,11 +757,13 @@ rebuild:
 ```bash
 cd ~/ara && git pull
 echo "ARA_UI_PASSWORD=$(openssl rand -hex 16)" >> .env
+echo "ARA_RUNS_VOLUME=runs-review" >> .env
 grep ARA_UI_PASSWORD .env               # the password to give the reviewer
-docker compose up -d --build --force-recreate
+docker compose up -d --build
 ```
-`--force-recreate` also starts a **fresh run history**, so the reviewer can't see your own earlier
-questions on the *History* page. (You'll see theirs.)
+`ARA_RUNS_VOLUME=runs-review` gives the app a **separate, empty run history** while the reviewer
+has access, so they can't see your own questions on the *History* page. (You'll see theirs.)
+Your own history stays untouched in the `runs` volume.
 
 **5. Put HTTPS in front with Caddy.** It gets and renews a free Let's Encrypt certificate by itself
 (DuckDNS is on the Public Suffix List, so its rate limits are per subdomain):
@@ -780,8 +801,8 @@ sudo systemctl disable --now caddy
 Then remove the HTTP/HTTPS rules from the security group, and if you made one, **Disassociate** and
 **Release** the Elastic IP: an unused Elastic IP still costs $0.005/hour, and the instance gets a
 new public IP for SSH. If the link or password went further than intended, rotate the OpenAI key
-as well. To drop the password screen from your own tunnel, delete the `ARA_UI_PASSWORD` line from
-`.env` and run `docker compose up -d`.
+as well. To get your own history back and drop the password screen, delete the `ARA_UI_PASSWORD`
+and `ARA_RUNS_VOLUME` lines from `.env` and run `docker compose up -d`.
 
 ---
 
@@ -849,6 +870,8 @@ keys** in the OpenAI and Tavily dashboards and create new ones for the next depl
 | Console: *You need additional access* / *permission denied* on the project | Your browser is signed in with a different Google account. Switch accounts (avatar, top right) to the one that owns the project. |
 | Windows Git Bash: `gcloud` → *Python was not found* | Git Bash picks a launcher that looks for a system Python. Run `gcloud` from **PowerShell** (or use Cloud Shell for the bash steps). |
 | Oracle: *image is not compatible with the selected shape* | Choose the **Ampere** shape first, then re-select Ubuntu so the Console picks the **aarch64** build. |
+| History page empty after an update | The install predates the history volume: the old runs were inside the replaced container. Copy them out *before* updating (see **Updating later** under R2). |
+| Real-mode sidebar won't go above some budget | Intended: in real mode `TOKEN_BUDGET` and `MAX_ITERATIONS` in `.env` are the ceiling. Raise them there and run `docker compose up -d`. |
 | AWS: SSH times out | Your IP changed (the *My IP* rule no longer matches — edit the security group), or the instance was stopped and restarted with a **new** public IP. |
 | AWS reviewer link: the https:// address doesn't load | Check that DuckDNS points at the **Elastic IP**, that ports 80 and 443 are open in the security group, and Caddy's log: `sudo journalctl -u caddy --no-pager -n 50`. |
 | AWS: *Permission denied (publickey)* | Log in as **`ubuntu`** (not `ec2-user`) with the `.pem` from that instance's key pair, locked with `icacls`. |

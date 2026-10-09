@@ -51,3 +51,16 @@ def test_critic_off_keeps_uncited_claim(settings):
     assert off.citation_coverage < on.citation_coverage
     assert on.citation_coverage == 1.0
     assert _has_synthesis(off)
+
+
+def test_run_records_the_claims_the_critic_removed(settings):
+    # The removed claim is gone from the report but kept in the run record, so a
+    # revise loop (or a partial run) shows what was cut and why the loop ran.
+    result = run(QUESTION, settings=settings, persist=False)
+    assert len(result.removed_claims) == 1
+    assert result.removed_claims[0].startswith(SYNTH_PREFIX)
+    assert all(c.text not in result.removed_claims for c in result.report.all_claims())
+
+    off = run(QUESTION, settings=settings.model_copy(update={"enable_critic": False}),
+              persist=False)
+    assert off.removed_claims == []

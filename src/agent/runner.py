@@ -129,6 +129,7 @@ def run(
         usd=budget.usd_used,
         latency_ms=round(latency_ms, 3),
         dropped_claims=int(final_state.get("dropped_claims", 0)),
+        removed_claims=list(final_state.get("rejected", [])),
         trace=final_state.get("trace", []),
         evidence=final_state.get("evidence", []),
     )

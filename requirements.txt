@@ -26,7 +26,7 @@ pytest>=8.0
 #
 #   openai>=1.30          # real LLM (llm_provider=openai)
 #   tavily-python>=0.3    # real web search (search_provider=web, search_backend=tavily)
-#   trafilatura>=1.6      # nicer readable-text extraction for HttpFetch
+#   trafilatura>=1.6      # article text for HttpFetch (without it, snippets carry page CSS/menus)
 #   pypdfium2>=4          # research your own PDF documents (CORPUS_DIR with .pdf files)
 #   dspy-ai>=3.0,<4       # optional DSPy track (agent_backend=dspy, make optimize)
 #   mcp>=2.1,<3           # serve the pipeline over MCP (python -m agent.mcp_server)

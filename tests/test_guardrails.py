@@ -96,3 +96,28 @@ def test_build_sources_numbers_by_first_appearance_not_lexicographic():
     report = Report(question="q", sections=[ReportSection(heading="s", claims=claims)])
     sources = build_sources(report, evidence)
     assert [(s.n, s.evidence_id) for s in sources] == [(i, f"E{i}") for i in range(1, 13)]
+
+
+def _real_settings(**kw):
+    from agent.config import Settings
+
+    return Settings(_env_file=None, llm_provider="openai", openai_api_key="x",
+                    search_provider="web", search_api_key="x", fetch_provider="http", **kw)
+
+
+def test_real_mode_requests_cannot_raise_the_spend_limits():
+    from agent.guardrails import cap_request
+
+    real = _real_settings(token_budget=40_000, max_iterations=2)
+    asked = {"token_budget": 500_000, "max_iterations": 5, "enable_critic": False}
+    assert cap_request(real, asked) == {"token_budget": 40_000, "max_iterations": 2,
+                                        "enable_critic": False}
+    lower = {"token_budget": 10_000, "max_iterations": 0}
+    assert cap_request(real, lower) == lower  # lowering is always allowed
+
+
+def test_keyless_requests_may_go_above_the_defaults(settings):
+    from agent.guardrails import cap_request
+
+    asked = {"token_budget": 500_000, "max_iterations": 5}
+    assert cap_request(settings, asked) == asked  # free, so nothing to protect

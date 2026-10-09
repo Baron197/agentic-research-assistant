@@ -126,3 +126,39 @@ def test_metrics_stable_shape_when_empty(client):
     for key in ("runs", "avg_cost_usd", "avg_latency_ms", "p95_latency_ms",
                 "avg_steps", "avg_citation_coverage"):
         assert key in body
+
+
+def test_health_reports_the_run_limits(client):
+    limits = client.get("/health").json()["limits"]
+    assert limits == {"token_budget": 60_000, "max_iterations": 2}
+
+
+def test_removed_claims_are_returned_and_persisted(client):
+    data = client.post("/research", json={"question": "What is reranking?"}).json()
+    assert len(data["removed_claims"]) == 1  # the keyless writer's planted claim
+    detail = client.get(f"/runs/{data['run_id']}").json()
+    assert detail["removed_claims"] == data["removed_claims"]
+
+
+def test_real_mode_api_caps_the_requested_budget(client, monkeypatch):
+    # A paid deployment's TOKEN_BUDGET / MAX_ITERATIONS bound what a caller asks for.
+    import agent.api as api
+    from agent.config import Settings
+    from agent.schemas import Report, RunResult
+
+    real = Settings(_env_file=None, llm_provider="openai", openai_api_key="x",
+                    search_provider="web", search_api_key="x", fetch_provider="http",
+                    token_budget=40_000, max_iterations=2)
+    seen = {}
+
+    def fake_run(question, *, settings, **overrides):
+        seen.update(overrides)
+        return RunResult(run_id="r1", question=question, status="complete",
+                         report=Report(question=question))
+
+    monkeypatch.setattr(api, "get_settings", lambda: real)
+    monkeypatch.setattr(api, "run", fake_run)
+    resp = client.post("/research", json={"question": "a valid question",
+                                          "token_budget": 500_000, "max_iterations": 5})
+    assert resp.status_code == 200
+    assert seen == {"token_budget": 40_000, "max_iterations": 2}

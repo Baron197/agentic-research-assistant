@@ -191,6 +191,10 @@ class RunResult(BaseModel):
     usd: float = 0.0
     latency_ms: float = 0.0
     dropped_claims: int = 0
+    # Claims the critic took out as unsupported, in the order it removed them
+    # (the run's ``rejected`` list). Shows what a revise loop cut — and, on a
+    # partial run, what was still being cut when the iterations ran out.
+    removed_claims: list[str] = Field(default_factory=list)
     trace: list[Step] = Field(default_factory=list)
     evidence: list[Evidence] = Field(default_factory=list)
     created_at: str = Field(default_factory=_utcnow_iso)

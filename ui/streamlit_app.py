@@ -198,11 +198,13 @@ def _embed() -> dict[str, Any] | None:
             sys.path.insert(0, src)
         from agent import __version__
         from agent.config import get_settings
+        from agent.guardrails import cap_request
         from agent.metrics import support_rate
         from agent.observability import aggregate, load_run, recent_runs
         from agent.runner import render_report_markdown, run
         from agent.tools.search import list_corpus
         return {"version": __version__, "get_settings": get_settings,
+                "cap_request": cap_request,
                 "support_rate": support_rate, "aggregate": aggregate,
                 "load_run": load_run, "recent_runs": recent_runs,
                 "render_markdown": render_report_markdown, "run": run,
@@ -229,7 +231,8 @@ def api_health() -> dict[str, Any] | None:
     if _backend() == "embedded":
         e = _embed()
         s = e["get_settings"]()
-        return {"status": "ok", "version": e["version"], "keyless": s.is_keyless}
+        return {"status": "ok", "version": e["version"], "keyless": s.is_keyless,
+                "limits": {"token_budget": s.token_budget, "max_iterations": s.max_iterations}}
     try:
         return httpx.get(f"{API_URL}/health", timeout=5).json()
     except Exception:  # noqa: BLE001
@@ -302,11 +305,13 @@ def _embedded_research(payload: dict[str, Any]) -> tuple[dict[str, Any] | None, 
     e = _embed()
     if e is None:
         return None, "Embedded backend unavailable (the agent package could not be imported)."
-    overrides = {k: payload[k] for k in
-                 ("max_iterations", "token_budget", "require_approval", "enable_critic")
-                 if payload.get(k) is not None}
+    settings = e["get_settings"]()
+    overrides = e["cap_request"](settings, {
+        k: payload[k] for k in
+        ("max_iterations", "token_budget", "require_approval", "enable_critic")
+        if payload.get(k) is not None})
     try:
-        res = e["run"](payload.get("question", ""), settings=e["get_settings"](), **overrides)
+        res = e["run"](payload.get("question", ""), settings=settings, **overrides)
     except Exception as exc:  # noqa: BLE001
         return None, f"Research failed: {exc}"
     return {
@@ -314,6 +319,7 @@ def _embedded_research(payload: dict[str, Any]) -> tuple[dict[str, Any] | None, 
         "report": res.report.model_dump(), "markdown": e["render_markdown"](res.report),
         "iterations": res.iterations, "tool_calls": res.tool_calls, "tokens": res.tokens,
         "usd": res.usd, "latency_ms": res.latency_ms, "dropped_claims": res.dropped_claims,
+        "removed_claims": res.removed_claims,
         "citation_coverage": round(res.citation_coverage, 4),
         "support_rate": round(e["support_rate"](res.report, res.evidence), 4),
     }, None
@@ -498,12 +504,12 @@ def _sync_dark() -> None:
     ss.dark = ss.dark_toggle
 
 
-def sidebar_health() -> None:
+def sidebar_health(health: dict[str, Any] | None = None) -> None:
     with st.sidebar:
         st.toggle("Dark mode", value=bool(ss.get("dark", False)),
                   key="dark_toggle", on_change=_sync_dark,
                   help="Switch the whole app between light and dark themes.")
-        health = api_health()
+        health = health or api_health()
         if health:
             st.success(f"API up · v{health.get('version', '?')} · "
                        f"keyless={health.get('keyless')}")
@@ -512,11 +518,26 @@ def sidebar_health() -> None:
 
 
 def settings_sidebar(show_critic: bool = True) -> None:
+    health = api_health()
+    # In real mode the server's TOKEN_BUDGET / MAX_ITERATIONS are a ceiling (it
+    # lowers any request above them), so the inputs stop there too.
+    limits = (health or {}).get("limits") or {}
+    capped = bool(limits) and health.get("keyless") is False
+    max_iter = int(limits["max_iterations"]) if capped else 5
+    max_budget = int(limits["token_budget"]) if capped else 500_000
+    ss.max_iter = min(int(ss.max_iter), max_iter)
+    ss.budget = min(int(ss.budget), max_budget)
     with st.sidebar:
         st.header("Run settings")
-        st.slider("Max critic iterations", 0, 5, key="max_iter")
-        st.number_input("Token budget", min_value=100, max_value=500_000,
+        if max_iter > 0:
+            st.slider("Max critic iterations", 0, max_iter, key="max_iter")
+        else:
+            st.caption("Max critic iterations: 0 (set by the server)")
+        st.number_input("Token budget", min_value=min(100, max_budget), max_value=max_budget,
                         step=1_000, key="budget")
+        if capped:
+            st.caption(f"This server allows up to {max_budget:,} tokens and {max_iter} "
+                       "critic iteration(s) per run (its TOKEN_BUDGET and MAX_ITERATIONS).")
         if show_critic:
             st.toggle("Enable verifying critic", key="critic",
                       help="OFF = the critic-OFF arm of the A/B: the keyless writer's "
@@ -526,7 +547,7 @@ def settings_sidebar(show_critic: bool = True) -> None:
                          "auto-approve (an approval step still appears in the trace). A "
                          "real deny is only possible via the Python API's approval_fn.")
         st.divider()
-    sidebar_health()
+    sidebar_health(health)
 
 
 def render_result(r: dict[str, Any], detail: dict[str, Any]) -> None:
@@ -542,11 +563,13 @@ def render_result(r: dict[str, Any], detail: dict[str, Any]) -> None:
     ])
     st.markdown(f'<div class="stat-row">{band}</div>', unsafe_allow_html=True)
     critic_ran = any(s.get("node") == "critic" for s in detail.get("trace", []))
+    removed = detail.get("removed_claims") or r.get("removed_claims") or []
     sup = r.get("support_rate")
     sup_s = f" · support {sup:.0%}" if isinstance(sup, (int, float)) else ""
+    removed_s = f" · removed by critic {len(removed)}" if critic_ran else ""
     st.markdown(
         f'<div class="runmeta">Cost ${r["usd"]:.4f} · latency {r["latency_ms"]:.0f} ms · '
-        f'dropped claims {r["dropped_claims"]}{sup_s} · critic '
+        f'dropped claims {r["dropped_claims"]}{removed_s}{sup_s} · critic '
         f'{"ran" if critic_ran else "off"} · run_id <code>{r["run_id"]}</code></div>',
         unsafe_allow_html=True,
     )
@@ -559,6 +582,12 @@ def render_result(r: dict[str, Any], detail: dict[str, Any]) -> None:
 
     with tab_report:
         st.markdown(report.get("markdown") or r["markdown"])
+        if removed:
+            with st.expander(f"Removed by the critic ({len(removed)})"):
+                st.caption("Claims an earlier draft made that the critic found unsupported "
+                           "by their cited evidence. None of them are in the report above.")
+                for text in removed:
+                    st.markdown(f"- {text}")
         d1, d2 = st.columns(2)
         d1.download_button(":material/download: Download report (Markdown)", r["markdown"],
                            file_name=f"report_{r['run_id']}.md", mime="text/markdown",
@@ -896,7 +925,8 @@ def page_guide() -> None:
             "### The metrics band\n"
             "Every answer opens with five cards and a meta line:\n\n"
             "| Field | Meaning |\n|---|---|\n"
-            "| **Status** | `complete` · `partial` (hit a budget/iteration limit) · "
+            "| **Status** | `complete` · `partial` (hit the token budget, or the critic "
+            "still wanted a revision when the iterations ran out) · "
             "`awaiting_approval` |\n"
             "| **Iterations** | how many times the critic sent the draft back to be "
             "re-written |\n"
@@ -905,8 +935,8 @@ def page_guide() -> None:
             "in keyless mode) |\n"
             "| **Citation coverage** | % of claims carrying ≥1 citation — the badge is "
             "green ≥100%, amber ≥80%, red below |\n"
-            "| meta line | cost · latency · dropped claims · support rate · whether "
-            "the critic ran · the `run_id` |\n\n"
+            "| meta line | cost · latency · dropped claims · removed by critic (listed "
+            "under the report) · support rate · whether the critic ran · the `run_id` |\n\n"
             "### Citations & sources\n"
             "Every bullet in the report ends in a **[n]** marker. The numbered "
             "**Sources** list maps each **[n]** to a document that was actually "
@@ -915,7 +945,8 @@ def page_guide() -> None:
             "guarantee, made visible: a citation can never point at something the "
             "system didn't retrieve.\n\n"
             "### The six result tabs\n"
-            "- **Report** — the cited answer, with Markdown / JSON download.\n"
+            "- **Report** — the cited answer, with Markdown / JSON download, and any "
+            "claims the critic removed.\n"
             "- **Evidence & sources** — each gathered passage, its source, and the "
             "claims that cite it.\n"
             "- **Corpus** — which corpus documents this question drew on (used vs "

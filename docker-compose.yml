@@ -11,15 +11,25 @@
 # set ARA_BIND=127.0.0.1 in .env so the app is reachable ONLY through an SSH
 # tunnel — Docker-published ports bypass the host firewall (iptables/ufw), so
 # binding to loopback is the reliable way to keep a paid app private.
+#
+# Both services restart on their own after a reboot or a stopped VM is started
+# again; `docker compose stop` / `down` still stops them for good.
 services:
   api:
     build: .
     image: agentic-research-assistant
+    restart: unless-stopped
     env_file:
       - path: .env
         required: false          # a fresh clone has no .env -> keyless
     ports:
       - "${ARA_BIND:-0.0.0.0}:8000:8000"
+    volumes:
+      # Run history lives in a named volume, not in the container, so it survives
+      # rebuilds, code updates and `docker compose down` (`down -v` deletes it).
+      # ARA_RUNS_VOLUME=runs-review switches to a separate, empty history while a
+      # reviewer has access, and back again (DEPLOYMENT.md §8 R4).
+      - "${ARA_RUNS_VOLUME:-runs}:/app/runs"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
       interval: 10s
@@ -28,6 +38,7 @@ services:
 
   ui:
     image: agentic-research-assistant
+    restart: unless-stopped
     command: streamlit run ui/streamlit_app.py --server.port 8501 --server.address 0.0.0.0
     ports:
       - "${ARA_BIND:-0.0.0.0}:8501:8501"
@@ -38,3 +49,7 @@ services:
       ARA_UI_PASSWORD: ${ARA_UI_PASSWORD:-}
     depends_on:
       - api
+
+volumes:
+  runs:
+  runs-review:

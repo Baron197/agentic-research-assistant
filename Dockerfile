@@ -14,16 +14,18 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # Runtime dependencies only (no ruff/pytest). streamlit is included so the
-# optional UI service in docker-compose can share this image. openai and
-# tavily-python are the real-mode SDKs: installed so a deployment can switch to
-# real mode with env vars alone, but only IMPORTED when a real provider is
-# selected (lazy imports in llm.py / search.py), so keyless runs never load them.
+# optional UI service in docker-compose can share this image. openai,
+# tavily-python and trafilatura are the real-mode libraries: installed so a
+# deployment can switch to real mode with env vars alone, but only IMPORTED when a
+# real provider is selected (lazy imports in llm.py / search.py / fetch.py), so
+# keyless runs never load them. trafilatura pulls the article text out of a
+# fetched page; without it, evidence snippets are mostly the page's CSS and menus.
 # Upper bounds stop a future breaking MAJOR release from reaching a deploy
 # unnoticed; the calls the app makes are verified on openai 2.x and 3.x.
 RUN pip install --no-cache-dir \
     "langgraph>=0.2" "langchain-core>=0.3" "pydantic>=2.5" "pydantic-settings>=2.1" \
     "fastapi>=0.110" "uvicorn>=0.27" "httpx>=0.27" "streamlit>=1.33" \
-    "openai>=1.30,<4" "tavily-python>=0.3,<1"
+    "openai>=1.30,<4" "tavily-python>=0.3,<1" "trafilatura>=1.6,<3"
 
 COPY src ./src
 COPY data ./data

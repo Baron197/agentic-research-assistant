@@ -24,7 +24,7 @@ dependencies = [
 
 [project.optional-dependencies]
 # Heavy / real-mode only. The keyless path needs NONE of these.
-real = ["openai>=1.30"]
+real = ["openai>=1.30,<4", "tavily-python>=0.3,<1", "trafilatura>=1.6,<3"]
 ui = ["streamlit>=1.33,<2"]
 dev = ["ruff>=0.4", "pytest>=8.0"]
 # Serve the pipeline over the Model Context Protocol (python -m agent.mcp_server).

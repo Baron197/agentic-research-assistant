@@ -166,6 +166,8 @@ run_id=… status=complete iterations=0 tool_calls=17 tokens=25273 usd=$0.0101 l
 
 ### 6. Control the cost (real mode is paid — the guardrails are yours to set)
 - **`TOKEN_BUDGET`** — the pipeline stops cleanly as `partial` once a run exceeds it. Lower it to cap per-run spend.
+  In real mode it is also a ceiling, like `MAX_ITERATIONS`: the UI's sidebar and API requests can
+  lower them but never raise them (`GET /health` reports both as `limits`).
 - **`OPENAI_MODEL`** — `gpt-4o-mini` is a fraction of a cent per run; reach for `gpt-4o` only on hard topics.
 - **`EVIDENCE_PER_SUBQUESTION` / `TOP_SEARCH_RESULTS`** — depth knobs; more sources ⇒ more tokens.
 - **`MAX_ITERATIONS`** — each critic revise re-runs the writer + critic (more tokens).
@@ -178,6 +180,12 @@ run_id=… status=complete iterations=0 tool_calls=17 tokens=25273 usd=$0.0101 l
   $0.0007–$0.0015, roughly **700–1,400 runs per $1**. Roughly 75–85% of the tokens are input, so
   pricing input and output separately matters. Tavily searches are free within the tier, roughly
   3–6 credits per run, so the 1,000/month free allowance is ~200 runs.
+- **These figures assume `trafilatura` is installed** (it is in the Docker image and the `real`
+  extra). Without it, evidence snippets carry each page's CSS, scripts and menus: on 2026-10-09 a
+  server without it spent **54,898 tokens ($0.0074)** on "What are text embeddings and how is
+  similarity measured?" and ended `partial`, never naming a similarity measure. With it, the same
+  question took **6,028 tokens ($0.0012)**, completed, and cited cosine, dot product and Euclidean
+  distance.
 
 ---
 
@@ -388,7 +396,8 @@ also the **least private** option — a public Streamlit app has no login — so
 | `search_provider='web' … set FETCH_PROVIDER=http as well` | Fail-fast config validation (`config.py::_check_provider_mix`): web search returns `https://` URLs that `FakeFetch` cannot resolve. Flip fetch too. |
 | `NotImplementedError: search backend 'brave' …` | Only **tavily** is implemented (`search.py::OpenWebSearch`). Set `SEARCH_BACKEND=tavily`. |
 | Some sources show `fetch failed: … 403 Forbidden` | **Normal.** Many sites (Wikipedia, Medium) block non-browser agents. The run degrades gracefully and uses the sources it could fetch. |
-| A claim quotes navigation junk | `HttpFetch` extraction on JS-heavy pages. `pip install trafilatura` improves it; the writer usually just leaves the junk uncited. |
+| Evidence snippets full of CSS, JavaScript or menus | `trafilatura` isn't installed: `pip install trafilatura` (the Docker image has it). With it, `HttpFetch` keeps only the article text and skips pages that have none (video pages, login walls), moving on to the next search result. |
+| `fetch failed: 403 Forbidden` in the trace | The site refuses bots (Medium and some blogs do). Expected: the researcher uses the next search result. The fetcher already identifies itself with a contact URL, which Wikipedia requires. |
 | Costs higher than expected | Writer + critic dominate. Lower `MAX_ITERATIONS`, `EVIDENCE_PER_SUBQUESTION`, `TOP_SEARCH_RESULTS`, or `TOKEN_BUDGET`. |
 | Deployed container: `No module named 'openai'` | The image was built before it bundled the real-mode SDKs. Rebuild: `docker compose up -d --build` on a VM, or redeploy with `--source .` on Cloud Run. |
 | Real-mode VM still says `keyless: true` | The `.env` must sit **next to `docker-compose.yml`** (`~/ara/.env`). Check what the API container received — `docker compose exec api env \| grep PROVIDER` — then `docker compose up -d` again. |
@@ -413,6 +422,9 @@ also the **least private** option — a public Streamlit app has no login — so
   under concurrent API serving; the default `manual` backend is unaffected.
 - **Fetching** — `HttpFetch` is bounded (byte cap, SSRF-guarded, per-redirect-hop checks) and runs in
   parallel across sub-questions; deeper runs still hit more pages, so mind `TOP_SEARCH_RESULTS`.
+  Snippet selection is still lexical: a sentence that shares the query's exact words can beat a
+  better one that uses another form ("embedding" vs "embeddings"), and the writer then works
+  from that weaker sentence.
 - Real mode is **not free** — keyless remains the right choice for the public portfolio demo. See
   [README.md](README.md) for the keyless quickstart and [DEPLOYMENT.md](DEPLOYMENT.md) for the free
   (keyless) hosting options.

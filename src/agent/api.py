@@ -5,7 +5,7 @@ Endpoints:
   * ``GET  /runs``       — newest-first list of persisted run summaries (history).
   * ``GET  /runs/{id}``  — one persisted run, enriched with markdown + coverage.
   * ``GET  /corpus``     — list the local corpus documents (corpus-coverage view).
-  * ``GET  /health``     — liveness probe.
+  * ``GET  /health``     — liveness probe (+ mode and the run limits).
   * ``GET  /metrics``    — aggregate observability metrics across all runs.
 
 Inputs are validated declaratively by pydantic (length/range bounds -> HTTP 422).
@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from . import __version__
 from .config import get_settings
-from .guardrails import GuardrailError, StructuredOutputError
+from .guardrails import GuardrailError, StructuredOutputError, cap_request
 from .metrics import support_rate as _support_rate
 from .observability import aggregate, load_run, recent_runs
 from .runner import render_report_markdown, run
@@ -79,6 +79,7 @@ class ResearchResponse(BaseModel):
     usd: float
     latency_ms: float
     dropped_claims: int
+    removed_claims: list[str] = Field(default_factory=list)
     citation_coverage: float
     support_rate: float
 
@@ -86,12 +87,18 @@ class ResearchResponse(BaseModel):
 @app.get("/health")
 def health() -> dict[str, Any]:
     settings = get_settings()
-    return {"status": "ok", "version": __version__, "keyless": settings.is_keyless}
+    return {
+        "status": "ok", "version": __version__, "keyless": settings.is_keyless,
+        # In real mode these are the most a request may ask for (cap_request);
+        # the UI sizes its run-settings inputs from them.
+        "limits": {k: getattr(settings, k) for k in ("token_budget", "max_iterations")},
+    }
 
 
 @app.post("/research", response_model=ResearchResponse)
 def research(req: ResearchRequest) -> ResearchResponse:
-    overrides = {
+    settings = get_settings()
+    overrides = cap_request(settings, {
         k: v
         for k, v in {
             "max_iterations": req.max_iterations,
@@ -100,9 +107,9 @@ def research(req: ResearchRequest) -> ResearchResponse:
             "enable_critic": req.enable_critic,
         }.items()
         if v is not None
-    }
+    })
     try:
-        result = run(req.question, settings=get_settings(), **overrides)
+        result = run(req.question, settings=settings, **overrides)
     except StructuredOutputError as exc:
         # The model returned unusable output — a server-side failure, not the
         # client's fault; 502 keeps the distinction visible to callers.
@@ -124,6 +131,7 @@ def research(req: ResearchRequest) -> ResearchResponse:
         usd=result.usd,
         latency_ms=result.latency_ms,
         dropped_claims=result.dropped_claims,
+        removed_claims=result.removed_claims,
         citation_coverage=round(result.citation_coverage, 4),
         support_rate=round(_support_rate(result.report, result.evidence), 4),
     )

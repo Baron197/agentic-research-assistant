@@ -19,7 +19,8 @@ This project is a small but complete example of several agentic-AI patterns:
   de-duplication and budget logic sequentially, so it is fast in real mode yet
   deterministic; `evidence_per_subquestion` sets report depth.
 - **Guardrails** — schema validation with retry, a hard citation guarantee, a
-  token/cost budget, and an iteration cap. The system fails safe, never hangs,
+  token/cost budget, and an iteration cap (in real mode both are a ceiling that
+  requests can lower but not raise). The system fails safe, never hangs,
   and never invents sources.
 - **Reflection loop** — the critic verifies the draft and can send the graph back
   through a revise pass in which the writer re-drafts from the same evidence without
@@ -130,7 +131,8 @@ free of globals and trivial to unit-test.
 The deliberately-unsupported synthesis claim forces exactly one revise: the
 critic removes it and records its text in `rejected`; on the next pass the writer
 regenerates but filters out anything in `rejected`, so the draft converges and
-the critic accepts.
+the critic accepts. The run record keeps those texts as `removed_claims` (shown
+in the UI under the report), so a revise loop, or a partial run, shows what was cut.
 
 The critic owns the loop decision. It revises only when that is both **warranted**
 (a claim was actually unsupported) and **permitted** (under `max_iterations` and
@@ -206,14 +208,14 @@ none are hard-coded.
 - **`schemas.py`** — every cross-boundary record as a pydantic model.
 - **`textutil.py`** — tokenisation, overlap (overlap-coefficient), sentence splitting, markdown stripping, token estimate. The shared notion of "relevant".
 - **`llm.py`** — `LLM` Protocol; `FakeLLM` (planner/writer/critic rules); `OpenAILLM` (lazy, JSON mode); `get_llm`.
-- **`tools/search.py` / `tools/fetch.py`** — Protocols + fakes (corpus / `local://`) + real (Tavily / httpx) + factories with optional LRU caching. **`tools/documents.py`** reads the corpus folder (Markdown / text / optional PDF), so pointing `CORPUS_DIR` at your own files makes the keyless pipeline research them.
+- **`tools/search.py` / `tools/fetch.py`** — Protocols + fakes (corpus / `local://`) + real (Tavily / httpx) + factories with optional LRU caching. `HttpFetch` returns a page's article text (`readable_text`: trafilatura, or a fallback that drops script/style blocks before stripping tags) and refuses pages without any (video pages, login walls) so the researcher moves on to the next result; its User-Agent carries a contact URL, which Wikipedia requires. **`tools/documents.py`** reads the corpus folder (Markdown / text / optional PDF), so pointing `CORPUS_DIR` at your own files makes the keyless pipeline research them.
 - **`cache.py`** — `LRUCache` (lock + `OrderedDict`) and `CachedSearch`/`CachedFetch` wrappers that surface hit/miss counts.
 - **`agents/*.py`** — the four nodes; `_common.py` holds the parsers and the `structured_call` validate/retry helper. The researcher also bounds each evidence snippet (`MAX_SNIPPET_CHARS`) so one unpunctuated page — which sentence-splitting would otherwise return whole — cannot consume the run's entire token budget.
-- **`guardrails.py`** — `clamp_input`, `enforce_citations`, `build_sources`, budget/iteration helpers, `validate_and_retry`.
+- **`guardrails.py`** — `clamp_input`, `enforce_citations`, `build_sources`, budget/iteration helpers, `cap_request` (in real mode a request may lower `token_budget` / `max_iterations` but never raise them), `validate_and_retry`.
 - **`graph.py`** — `GraphState`, the approval/finalizer nodes, the conditional routers, and `build_graph`.
 - **`observability.py`** — `Tracer`, list-price cost table (input / cached / output), persistence, `aggregate`.
 - **`runner.py`** — `run()` (the one entry point), `render_report_markdown`, and the CLI.
-- **`api.py`** — FastAPI service with validated request models and mapped errors (422 for rejected input, 502 when the model's output fails validation, 500 otherwise). `POST /research` accepts optional `max_iterations`, `token_budget`, `require_approval`, and `enable_critic` overrides.
+- **`api.py`** — FastAPI service with validated request models and mapped errors (422 for rejected input, 502 when the model's output fails validation, 500 otherwise). `POST /research` accepts optional `max_iterations`, `token_budget`, `require_approval`, and `enable_critic` overrides; in real mode the first two are capped at the server's settings, which `GET /health` reports as `limits` (the UI sizes its sidebar from them).
 - **`mcp_server.py`** — OPTIONAL Model Context Protocol server (import-guarded; `mcp` is never imported on the keyless path). A fourth caller of `runner.run()` alongside the CLI, API and UI, so no agent, graph or tool changed to support it. Exposes three **tools** (`research`, `list_sources`, `assistant_status`) and one **resource** (`corpus://documents`) over stdio. Three decisions carry the design: (1) MCP callers are pinned to keyless mode unless the operator sets `MCP_ALLOW_REAL_MODE`, because a server answers whoever connects to it and must not spend the operator's budget silently — the downgrade is reported by `assistant_status`, never hidden; (2) the tool surface is a trust boundary, so the *model* may only choose `depth`, never `enable_critic` or `token_budget`; (3) expected failures raise `ToolError` so the message reaches the calling model and it can retry, while anything unexpected becomes the SDK's `UnexpectedToolError` and leaks nothing. Because stdio carries JSON-RPC on stdout, a test asserts the pipeline writes nothing there.
 - **`ui/streamlit_app.py`** — a multi-page Streamlit front-end (five pages via native `st.navigation`: Research, Critic A/B, History, Observability, Guide) that carries **no business logic**: it calls the FastAPI service over HTTP, but transparently falls back to an **embedded in-process backend** (the same `agent` functions the API handlers call; force with `ARA_EMBEDDED=1`) so the whole UI can also deploy as a single self-contained app (e.g. Streamlit Community Cloud). The Research page renders results in six tabs (Report, Evidence & sources, Corpus, Step timeline, Agent graph, Run data) with Markdown/JSON downloads, colour-coded metric cards, example-question chips, and a live critic on/off toggle; the Observability page is fed by `GET /metrics`. An optional password screen (`ARA_UI_PASSWORD`) gates the whole app for a shared real-mode instance; it lives in the app rather than as proxy basic auth because Safari doesn't send basic-auth credentials on WebSockets. Light + dark themes (base theme in `.streamlit/config.toml`); screenshots in `docs/screenshots/`.
 

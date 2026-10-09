@@ -2,14 +2,17 @@
 
 ``FakeFetch`` resolves ``local://<file>`` URLs to corpus files so a run is fully
 offline. ``HttpFetch`` is a polite, bounded real fetcher (lazy ``httpx`` import)
-with a minimal readable-text extraction; it is never used on the keyless path.
+that returns a page's article text (``readable_text``); it is never used on the
+keyless path.
 """
 
 from __future__ import annotations
 
+import html
 import re
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
+from urllib.parse import urlparse
 
 from .documents import read_doc_text
 
@@ -17,6 +20,50 @@ LOCAL_PREFIX = "local://"
 _MAX_BYTES = 1_000_000  # politeness/safety bound for the real fetcher
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
+# Whole elements whose text is code or markup, not prose. A bare tag strip keeps
+# their contents, which is how CSS, JavaScript and JSON-LD ended up as "evidence".
+_NON_TEXT_RE = re.compile(
+    r"<(script|style|noscript|template|svg|head)\b[^>]*>.*?</\1\s*>", re.IGNORECASE | re.DOTALL
+)
+_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+# Less than this much article text means the page had none worth quoting: a video
+# page, a login wall, a JS-only app. (A video page's extract is its footer links.)
+MIN_ARTICLE_CHARS = 200
+# Video pages carry no article text at all; skip them before spending a fetch.
+_NO_TEXT_HOSTS = ("youtube.com", "youtu.be", "vimeo.com", "tiktok.com")
+
+
+class NoReadableText(ValueError):
+    """The page has no article text to quote; the researcher tries the next result."""
+
+
+def _crude_text(raw: str) -> str:
+    """Tag-stripped text with code blocks and comments removed first."""
+    text = _COMMENT_RE.sub(" ", _NON_TEXT_RE.sub(" ", raw))
+    return _WS_RE.sub(" ", html.unescape(_TAG_RE.sub(" ", text))).strip()
+
+
+def readable_text(raw: str) -> str:
+    """The article text of an HTML page, or ``NoReadableText``.
+
+    trafilatura (installed in the Docker image and the ``real`` extra) finds the
+    main content and leaves menus, cookie banners and footers behind. Without it,
+    a crude fallback drops script/style blocks before stripping tags. Either way,
+    a page with less than ``MIN_ARTICLE_CHARS`` of text is refused, so the run
+    moves on to the next search result instead of citing page furniture.
+    """
+    try:
+        import trafilatura
+    except ImportError:
+        text = _crude_text(raw)
+    else:
+        try:
+            text = trafilatura.extract(raw) or trafilatura.extract(raw, favor_recall=True) or ""
+        except Exception:  # noqa: BLE001 - a parser crash on odd HTML: fall back
+            text = _crude_text(raw)
+    if len(text.strip()) < MIN_ARTICLE_CHARS:
+        raise NoReadableText(f"no readable article text ({len(text.strip())} chars)")
+    return text
 
 
 @runtime_checkable
@@ -55,7 +102,7 @@ class FakeFetch:
 
 
 class HttpFetch:
-    """Real, bounded HTTP fetch with naive readable-text extraction.
+    """Real, bounded HTTP fetch that returns a page's article text.
 
     Guardrails: only ``http(s)`` URLs; redirects are followed manually so every
     hop is re-validated; hosts that resolve to private/loopback/link-local
@@ -66,7 +113,9 @@ class HttpFetch:
     name = "http-fetch"
 
     _MAX_REDIRECTS = 5
-    _USER_AGENT = "agentic-research-assistant/0.1"
+    # Identify the bot and where to find out about it: Wikipedia, for one, answers
+    # a bare product name with 403 (its robot policy asks for contact details).
+    _USER_AGENT = "agentic-research-assistant/0.1 (+https://github.com/Baron197/agentic-research-assistant)"
 
     def __init__(self, timeout: float = 10.0, max_bytes: int = _MAX_BYTES) -> None:
         self.timeout = timeout
@@ -90,9 +139,17 @@ class HttpFetch:
             if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
                 raise ValueError(f"refusing to fetch private/internal address for {url!r}")
 
+    @staticmethod
+    def _check_has_text(url: str) -> None:
+        """Refuse hosts whose pages are video players, not articles."""
+        host = (urlparse(url).hostname or "").lower()
+        if any(host == h or host.endswith("." + h) for h in _NO_TEXT_HOSTS):
+            raise NoReadableText(f"video page, no article text: {url!r}")
+
     def fetch(self, url: str) -> str:  # pragma: no cover - real network path
         import httpx  # lazy
 
+        self._check_has_text(url)
         raw = ""
         with httpx.Client(timeout=self.timeout, follow_redirects=False) as client:
             for _ in range(self._MAX_REDIRECTS + 1):
@@ -118,16 +175,7 @@ class HttpFetch:
                     resp.close()
             else:
                 raise ValueError(f"too many redirects fetching {url!r}")
-        # Prefer trafilatura if available; otherwise strip tags crudely.
-        try:
-            import trafilatura
-
-            extracted = trafilatura.extract(raw)
-            if extracted:
-                return extracted
-        except Exception:
-            pass
-        return _WS_RE.sub(" ", _TAG_RE.sub(" ", raw)).strip()
+        return readable_text(raw)
 
 
 def get_fetch(settings: Any) -> FetchTool:
