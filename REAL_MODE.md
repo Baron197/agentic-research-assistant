@@ -186,6 +186,12 @@ run_id=… status=complete iterations=0 tool_calls=17 tokens=25273 usd=$0.0101 l
   similarity measured?" and ended `partial`, never naming a similarity measure. With it, the same
   question took **6,028 tokens ($0.0012)**, completed, and cited cosine, dot product and Euclidean
   distance.
+- **Evidence ranked by meaning** (`EVIDENCE_RANKING=auto`, on whenever the LLM is OpenAI): one
+  `text-embedding-3-small` call per fetched page, about 1,100 tokens, so **~$0.0002 per run**.
+  Re-measured on 2026-10-09: the embeddings question took 18,703 tokens ($0.0015; 11,064 of
+  those tokens are embeddings, $0.00022) and now quotes Wikipedia's actual definition; the
+  agentic RAG question took 19,701 ($0.0017). Embedding tokens count toward `TOKEN_BUDGET`
+  like any other. `EVIDENCE_RANKING=lexical` turns it off.
 
 ---
 
@@ -397,6 +403,7 @@ also the **least private** option — a public Streamlit app has no login — so
 | `NotImplementedError: search backend 'brave' …` | Only **tavily** is implemented (`search.py::OpenWebSearch`). Set `SEARCH_BACKEND=tavily`. |
 | Some sources show `fetch failed: … 403 Forbidden` | **Normal.** Many sites (Wikipedia, Medium) block non-browser agents. The run degrades gracefully and uses the sources it could fetch. |
 | Evidence snippets full of CSS, JavaScript or menus | `trafilatura` isn't installed: `pip install trafilatura` (the Docker image has it). With it, `HttpFetch` keeps only the article text and skips pages that have none (video pages, login walls), moving on to the next search result. |
+| A `rank` step says *ranking failed* | The embeddings call failed (rate limit, or a key whose project can't use `text-embedding-3-small`). That page kept the word-overlap pick and the run went on. Check the key's model access, or set `EVIDENCE_RANKING=lexical`. |
 | `fetch failed: 403 Forbidden` in the trace | The site refuses bots (Medium and some blogs do). Expected: the researcher uses the next search result. The fetcher already identifies itself with a contact URL, which Wikipedia requires. |
 | Costs higher than expected | Writer + critic dominate. Lower `MAX_ITERATIONS`, `EVIDENCE_PER_SUBQUESTION`, `TOP_SEARCH_RESULTS`, or `TOKEN_BUDGET`. |
 | Deployed container: `No module named 'openai'` | The image was built before it bundled the real-mode SDKs. Rebuild: `docker compose up -d --build` on a VM, or redeploy with `--source .` on Cloud Run. |
@@ -422,9 +429,9 @@ also the **least private** option — a public Streamlit app has no login — so
   under concurrent API serving; the default `manual` backend is unaffected.
 - **Fetching** — `HttpFetch` is bounded (byte cap, SSRF-guarded, per-redirect-hop checks) and runs in
   parallel across sub-questions; deeper runs still hit more pages, so mind `TOP_SEARCH_RESULTS`.
-  Snippet selection is still lexical: a sentence that shares the query's exact words can beat a
-  better one that uses another form ("embedding" vs "embeddings"), and the writer then works
-  from that weaker sentence.
+  With `EVIDENCE_RANKING=lexical` (and always in keyless mode) snippet selection is by word
+  overlap, so a sentence that shares the query's words can beat the one that answers it. Real
+  mode's default ranks passages by meaning instead (see §6).
 - Real mode is **not free** — keyless remains the right choice for the public portfolio demo. See
   [README.md](README.md) for the keyless quickstart and [DEPLOYMENT.md](DEPLOYMENT.md) for the free
   (keyless) hosting options.

@@ -5,7 +5,7 @@
 [![Live demo](https://img.shields.io/badge/Live%20demo-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://agentic-research-assistant-ra3rebpqgkqvyyw5wryrma.streamlit.app/)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
 [![CI](https://github.com/Baron197/agentic-research-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/Baron197/agentic-research-assistant/actions/workflows/ci.yml)
-[![tests](https://img.shields.io/badge/tests-108%20passing-brightgreen.svg)](#testing--ci)
+[![tests](https://img.shields.io/badge/tests-116%20passing-brightgreen.svg)](#testing--ci)
 [![Lint: ruff](https://img.shields.io/badge/lint-ruff-46a2f1.svg)](https://github.com/astral-sh/ruff)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Keyless](https://img.shields.io/badge/runs-keyless%20%240.00-brightgreen.svg)](#quickstart-keyless)
@@ -26,6 +26,7 @@
 - **Multi-agent roles** — Planner → Researcher → Writer → Critic → Finalizer, each a small, testable pure function of `(state, ctx)`.
 - **Tool use behind interfaces** — `search` and `fetch` each sit behind a `typing.Protocol` with a real and a deterministic fake implementation, chosen by a factory from typed config (Strategy pattern).
 - **Parallel research fan-out** — the researcher gathers sources for every sub-question concurrently (a thread pool over the search/fetch I/O) while replaying the URL de-duplication and budget accounting sequentially, so real-mode latency drops to roughly the slowest fetch yet the output stays **deterministic and identical** to a serial run. Report depth is a config knob (`evidence_per_subquestion`).
+- **Evidence picked by meaning in real mode** — each fetched page is cut into 3-sentence passages; a word-overlap shortlist feeds an embedding rerank (`text-embedding-3-small`) against the sub-question, the usual hybrid-retrieval pattern. On Wikipedia's *Word embedding* page this picks the actual definition, where word overlap picked a sentence about game transcripts. Keyless runs keep word overlap, so they stay offline and deterministic.
 - **A no-fabricated-sources guarantee** — `enforce_citations` strips every citation to an ungathered id and drops any claim left with no valid support; proven by a dedicated test.
 - **Guardrails** — schema-validated structured output (validate-and-retry), a hard `max_iterations` cap, and a token/cost budget that ends a run cleanly as `partial`.
 - **Evaluation wired into CI as a gate** — real metrics (no fabricated numbers), a critic ON/OFF A/B, and a `--min-citation-coverage` gate that fails the build on regression. The A/B was also re-run with a real model, where the critic's effect measured ~0 — reported as-is ([see why](#critic-ab--and-what-it-does-not-prove)).
@@ -142,8 +143,8 @@ Then install the real extras (import-guarded, so the keyless path never needs th
 pip install openai tavily-python trafilatura        # trafilatura = cleaner article text
 ```
 
-Cost is low — measured at about **$0.001 per run** with `gpt-4o-mini` ($0.0007–$0.0015
-across four real runs, live web and own documents), and Tavily's free tier (1,000
+Cost is low — measured at **$0.001–0.002 per run** with `gpt-4o-mini` (live web and own
+documents; ranking evidence by meaning adds about $0.0002 of embeddings), and Tavily's free tier (1,000
 credits/month) covers ~200 runs at 5 searches each. Keep real mode **local** (or on a
 private host); never put your keys on the public demo.
 
@@ -326,7 +327,7 @@ Step-by-step instructions for four free paths are in [**DEPLOYMENT.md**](DEPLOYM
 - Guidance for the **GCP $300 free trial**, plus cost guardrails to stay at exactly $0.
 - **Real mode as a private work tool** — OpenAI + live web search on GCP Cloud Run, Oracle A1
   or a GCP e2-micro, all on **free-tier infrastructure** and reachable only by you (you pay only
-  OpenAI usage, ~$0.001 per run). AWS EC2 works too, but its Free plan is $0 for six months only.
+  OpenAI usage, ~$0.0015 per run). AWS EC2 works too, but its Free plan is $0 for six months only.
   To let an employer try a real-mode instance, an optional password screen (`ARA_UI_PASSWORD`)
   plus HTTPS opens it to just the people you give the password to. See [DEPLOYMENT.md §8](DEPLOYMENT.md#8-real-mode--privately-on-0-infrastructure).
 
@@ -409,10 +410,12 @@ src/agent/
   schemas.py         SubQuestion, ResearchPlan, Evidence, Report, Citation, Critique, Budget, Step
   llm.py             LLM protocol + FakeLLM (rule-based per role) + OpenAILLM (lazy)
   textutil.py        deterministic tokenisation / overlap / snippet helpers
+  passages.py        real mode: pick a page's evidence passage by meaning (shortlist + embedding rerank)
   cache.py           thread-safe LRU + caching tool wrappers
   tools/
     search.py        SearchTool protocol + FakeSearch (corpus) + OpenWebSearch
     fetch.py         FetchTool protocol + FakeFetch (local://) + HttpFetch
+    embed.py         Embedder protocol + OpenAIEmbedder (real-mode evidence ranking)
     documents.py     multi-format corpus reader (.md/.txt/.pdf) — research your own docs
   agents/
     planner.py  researcher.py  writer.py  critic.py
@@ -432,7 +435,7 @@ data/corpus/         11 seed docs (the "web" FakeSearch/FakeFetch operate over)
 eval/
   tasks.jsonl        12 golden tasks (incl. 2 out-of-corpus abstention checks)
   run_eval.py        metrics + critic A/B + CI gate
-tests/               deterministic, keyless end-to-end + unit tests (108; 82 in keyless CI, 26 need optional extras)
+tests/               deterministic, keyless end-to-end + unit tests (116; 90 in keyless CI, 26 need optional extras)
 docs/screenshots/    UI screenshots used in this README
 Dockerfile  docker-compose.yml  .dockerignore  Makefile  pyproject.toml  requirements.txt
 .env.example  .gitattributes  .github/workflows/ci.yml
@@ -441,7 +444,7 @@ README.md  ARCHITECTURE.md  DEPLOYMENT.md  REAL_MODE.md  LICENSE
 
 ## Testing & CI
 
-`make test` runs a fast, deterministic, keyless suite of **108 tests** (graph
+`make test` runs a fast, deterministic, keyless suite of **116 tests** (graph
 end-to-end, no-fabricated-sources, the one-revise critic loop + iteration cap,
 tiny-budget → `partial`, the **parallel researcher fan-out** — proving a
 concurrent run is byte-identical to a serial one — the **depth** knob, the
@@ -450,16 +453,17 @@ that only LLM calls are priced, from the provider's input/output split), the
 provider-mix + config validation (incl. stripping stray whitespace from API keys),
 a hermetic test setup that ignores your local `.env` and shell variables (so a
 real-mode machine can't make `pytest` spend money), the fetcher keeping only article
-text (and refusing pages without any), the real-mode spend ceiling, the record of
-claims the critic removed,
+text (and refusing pages without any), real mode's passage ranking by meaning (with a
+stand-in embedder: pricing, fallback, parallel = serial), the real-mode spend ceiling,
+the record of claims the critic removed,
 and the API incl. the `/runs`, `/corpus`, `enable_critic` and 422 paths).
 Twenty-six of them exercise **optional** extras
 (19 the MCP server — including its schemas, its real-mode cost guard, and a
 stdout-purity check that protects the stdio transport — 6 the DSPy backend, 1
 PDF-corpus reading) and do not run unless those extras are installed. So a
-default keyless install, and CI, report **82 passed, 3 skipped** — the three
+default keyless install, and CI, report **90 passed, 3 skipped** — the three
 optional groups skip as whole units — while a machine with the extras present
-runs all **108**, still keyless via fakes / `DummyLM`. CI
+runs all **116**, still keyless via fakes / `DummyLM`. CI
 (`.github/workflows/ci.yml`) runs `ruff check .` → `pytest -q` → the eval gate,
 all keyless with no secrets.
 

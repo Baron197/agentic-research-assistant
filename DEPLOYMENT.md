@@ -415,7 +415,8 @@ months only).
 - **Tavily:** the free plan (1,000 credits/month) needs no card — key from app.tavily.com.
 - **`TOKEN_BUDGET`** (e.g. `40000`) caps tokens per run inside the app; runs that hit it end
   `partial` instead of spending more. In real mode it is a ceiling, as is `MAX_ITERATIONS`: the
-  UI's sidebar and API requests can lower them, never raise them.
+  UI's sidebar and API requests can lower them, never raise them. A typical real run uses about
+  20k tokens, including ~11k cheap embedding tokens for picking evidence passages.
 - **One OpenAI key per deployment.** Create a separate key for each place you deploy (e.g. named
   `ara-cloudrun`, `ara-oracle`, `ara-aws`) so you can revoke one without breaking the others, and see which
   deployment is spending.

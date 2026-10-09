@@ -30,6 +30,9 @@ from .schemas import RunResult, Step
 PRICES: dict[str, tuple[float, float, float]] = {
     "fake-llm": (0.0, 0.0, 0.0),
     "gpt-4o-mini": (0.15, 0.075, 0.60),
+    # Embedding models bill input only (evidence ranking, agent.passages).
+    "text-embedding-3-small": (0.02, 0.02, 0.0),
+    "text-embedding-3-large": (0.13, 0.13, 0.0),
     "gpt-4o": (2.50, 1.25, 10.00),
     "gpt-4.1": (2.00, 0.50, 8.00),
     "gpt-4.1-mini": (0.40, 0.10, 1.60),
@@ -91,10 +94,11 @@ class Tracer:
     def cost(self, response: LLMResponse) -> float:
         """USD of one LLM call, from its input/output split (all input if it has none).
 
-        Only LLM calls are priced. Search and fetch steps still charge their
-        estimated tokens to the run's *budget*, but they carry no USD: the
-        provider bills those snippets as input, inside the writer's and critic's
-        calls, each time they read them.
+        Only model calls are priced: these LLM calls, plus the researcher's
+        embedding ("rank") steps in real mode, which it prices with ``cost_usd``.
+        Search and fetch steps still charge their estimated tokens to the run's
+        *budget*, but they carry no USD: the provider bills those snippets as
+        input, inside the writer's and critic's calls, each time they read them.
         """
         if response.input_tokens or response.output_tokens:
             return cost_usd(self.model, response.input_tokens, response.output_tokens,

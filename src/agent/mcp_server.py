@@ -63,12 +63,13 @@ CORPUS_RESOURCE_URI = "corpus://documents"
 MAX_DEPTH = 5
 
 # Applied when real mode is configured but not allowed for MCP callers. Forcing
-# all four fields (not just the LLM) is what makes ``is_keyless`` true again.
+# all five fields (not just the LLM) is what makes ``is_keyless`` true again.
 KEYLESS_OVERRIDES: dict[str, Any] = {
     "llm_provider": "fake",
     "search_provider": "fake",
     "fetch_provider": "fake",
     "agent_backend": "manual",
+    "evidence_ranking": "lexical",
 }
 
 # Server-level guidance, surfaced to the host during initialisation. This is the

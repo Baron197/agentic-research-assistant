@@ -21,6 +21,7 @@ from .guardrails import clamp_input
 from .llm import get_llm
 from .observability import Tracer, persist_run
 from .schemas import Budget, Report, RunResult
+from .tools.embed import get_embedder
 from .tools.fetch import get_fetch
 from .tools.search import get_search
 
@@ -66,6 +67,7 @@ def build_context(
         fetch=get_fetch(settings),
         tracer=Tracer(model=_tracer_model(settings)),
         approval_fn=approval_fn,
+        embedder=get_embedder(settings),
     )
 
 

@@ -161,6 +161,10 @@ def test_real_mode_factories_wire_up_without_network():
     assert isinstance(get_fetch(real), HttpFetch)
     assert isinstance(get_llm(real), OpenAILLM)
 
+    from agent.tools.embed import OpenAIEmbedder, get_embedder
+    assert isinstance(get_embedder(real), OpenAIEmbedder)  # real mode ranks by meaning
+    assert get_embedder(Settings()) is None                 # keyless ranks by words
+
 
 # --- HttpFetch text extraction (no network: readable_text works on raw HTML) --
 _ARTICLE = ("Cosine similarity compares the angle between two embedding vectors. "

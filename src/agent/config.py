@@ -64,6 +64,13 @@ class Settings(BaseSettings):
     # Parallel search/fetch workers in the researcher (real-mode latency win; the
     # output is identical regardless of this value). 1 = no thread pool.
     research_concurrency: int = 4
+    # How the researcher picks each page's evidence passage. "lexical" = the two
+    # sentences sharing the most words with the search query (the keyless way);
+    # "semantic" = 3-sentence passages reranked by meaning with an OpenAI
+    # embedding model (agent.passages); "auto" = semantic whenever the LLM is
+    # OpenAI, so real mode gets it and keyless runs stay offline and free.
+    evidence_ranking: Literal["auto", "lexical", "semantic"] = "auto"
+    embedding_model: str = "text-embedding-3-small"
     enable_critic: bool = True
     max_question_length: int = 2_000
 
@@ -116,9 +123,21 @@ class Settings(BaseSettings):
                 "search_provider='fake' returns local:// URLs, which HttpFetch "
                 "cannot resolve; set SEARCH_PROVIDER=web too (or FETCH_PROVIDER=fake)."
             )
+        if self.evidence_ranking == "semantic" and not self.openai_api_key:
+            raise ValueError(
+                "evidence_ranking='semantic' ranks passages with an OpenAI embedding "
+                "model; set OPENAI_API_KEY (or EVIDENCE_RANKING=lexical)."
+            )
         return self
 
     # --- Convenience flags --------------------------------------------------
+    @property
+    def uses_embeddings(self) -> bool:
+        """True when the researcher ranks evidence passages with an embedding model."""
+        if self.evidence_ranking == "auto":
+            return self.llm_provider == "openai"
+        return self.evidence_ranking == "semantic"
+
     @property
     def is_keyless(self) -> bool:
         """True when no external service is configured (pure offline mode)."""
@@ -127,6 +146,7 @@ class Settings(BaseSettings):
             and self.search_provider == "fake"
             and self.fetch_provider == "fake"
             and self.agent_backend == "manual"  # the DSPy backend runs a real, paid LLM
+            and not self.uses_embeddings  # embedding calls are paid too
         )
 
 

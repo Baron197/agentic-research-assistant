@@ -17,7 +17,9 @@ This project is a small but complete example of several agentic-AI patterns:
   (keyless) or the real web. The researcher fans these calls out **in parallel**
   across sub-questions (a thread pool over the I/O) and then replays the
   de-duplication and budget logic sequentially, so it is fast in real mode yet
-  deterministic; `evidence_per_subquestion` sets report depth.
+  deterministic; `evidence_per_subquestion` sets report depth. In real mode each
+  page's evidence is the passage that best answers the sub-question, ranked by
+  meaning with an embedding model (`passages.py`); keyless runs pick by word overlap.
 - **Guardrails** — schema validation with retry, a hard citation guarantee, a
   token/cost budget, and an iteration cap (in real mode both are a ceiling that
   requests can lower but not raise). The system fails safe, never hangs,
@@ -38,6 +40,10 @@ with two implementations:
 - a **real** one (`OpenAILLM`, `OpenWebSearch`, `HttpFetch`) whose heavy SDK is
   imported *lazily inside the method*, and
 - a deterministic **fake** (`FakeLLM`, `FakeSearch`, `FakeFetch`).
+
+The embedding model behind real mode's evidence ranking (`OpenAIEmbedder`) is the
+one dependency without a fake: a keyless run simply has no embedder and picks
+evidence by word overlap, exactly as before.
 
 A `get_*(settings)` factory returns one based on typed config. Defaults are
 fake/offline, so the whole system — graph, tools, API, tests, CI — runs with **no
@@ -179,7 +185,9 @@ own usage counts (`LLMResponse.input_tokens` / `output_tokens` /
 `cached_input_tokens`), because output costs ~4× input and a research run is mostly
 input. Search and fetch steps charge their estimated tokens to the run's *budget* but
 carry no USD: OpenAI bills that page text as input, inside the writer's and critic's
-calls, each time they read it. The fake model is `$0`, which is why keyless runs honestly report zero cost.
+calls, each time they read it. In real mode the researcher also emits a `rank` step per
+page, the embedding call that picked its passage, priced at the embedding model's rate
+(about $0.0002 per run); its tokens count toward the budget like any other. The fake model is `$0`, which is why keyless runs honestly report zero cost.
 Tests pin the prices, the split, and that only LLM calls are priced; on real runs
 the tracker's figure matched OpenAI's raw usage exactly.
 
@@ -209,6 +217,7 @@ none are hard-coded.
 - **`textutil.py`** — tokenisation, overlap (overlap-coefficient), sentence splitting, markdown stripping, token estimate. The shared notion of "relevant".
 - **`llm.py`** — `LLM` Protocol; `FakeLLM` (planner/writer/critic rules); `OpenAILLM` (lazy, JSON mode); `get_llm`.
 - **`tools/search.py` / `tools/fetch.py`** — Protocols + fakes (corpus / `local://`) + real (Tavily / httpx) + factories with optional LRU caching. `HttpFetch` returns a page's article text (`readable_text`: trafilatura, or a fallback that drops script/style blocks before stripping tags) and refuses pages without any (video pages, login walls) so the researcher moves on to the next result; its User-Agent carries a contact URL, which Wikipedia requires. **`tools/documents.py`** reads the corpus folder (Markdown / text / optional PDF), so pointing `CORPUS_DIR` at your own files makes the keyless pipeline research them.
+- **`passages.py`** — real mode's evidence picker: 3-sentence passages, a word-overlap shortlist of 12, an embedding rerank against the sub-question, and a merge of the two best passages when they overlap (the answer often runs into the next sentence). Chosen by measurement: on 21 real pages, matching word forms or BM25 picked the same wrong sentence as plain overlap; ranking by meaning found the definitions. **`tools/embed.py`** holds the `Embedder` Protocol and `OpenAIEmbedder`; `EVIDENCE_RANKING` (`auto` / `lexical` / `semantic`) selects it, and an embedding failure falls back to the word-overlap pick for that page.
 - **`cache.py`** — `LRUCache` (lock + `OrderedDict`) and `CachedSearch`/`CachedFetch` wrappers that surface hit/miss counts.
 - **`agents/*.py`** — the four nodes; `_common.py` holds the parsers and the `structured_call` validate/retry helper. The researcher also bounds each evidence snippet (`MAX_SNIPPET_CHARS`) so one unpunctuated page — which sentence-splitting would otherwise return whole — cannot consume the run's entire token budget.
 - **`guardrails.py`** — `clamp_input`, `enforce_citations`, `build_sources`, budget/iteration helpers, `cap_request` (in real mode a request may lower `token_budget` / `max_iterations` but never raise them), `validate_and_retry`.

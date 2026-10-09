@@ -982,7 +982,9 @@ def page_guide() -> None:
             "Cost is honest by construction: the keyless model is priced at `$0`, so a "
             "keyless run genuinely reports zero. A real model is priced at list price "
             "from the provider's own token counts, input and output separately; search "
-            "and fetch steps carry no USD."
+            "and fetch steps carry no USD. In real mode the researcher's `rank` steps (the "
+            "embedding call that picks each page's passage) are priced at the embedding "
+            "model's rate."
         )
 
     with t_eval:

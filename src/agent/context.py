@@ -15,6 +15,7 @@ from .config import Settings
 from .llm import LLM
 from .observability import Tracer
 from .schemas import Report
+from .tools.embed import Embedder
 from .tools.fetch import FetchTool
 from .tools.search import SearchTool
 
@@ -29,3 +30,5 @@ class AgentContext:
     fetch: FetchTool
     tracer: Tracer
     approval_fn: Callable[[Report | None], bool] | None = None
+    # Ranks evidence passages by meaning in real mode; None = by words (keyless).
+    embedder: Embedder | None = None
