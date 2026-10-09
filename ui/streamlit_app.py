@@ -231,8 +231,13 @@ def api_health() -> dict[str, Any] | None:
     if _backend() == "embedded":
         e = _embed()
         s = e["get_settings"]()
+        # A hosted app can keep an older agent package in memory after an update
+        # (Streamlit Cloud reruns this file but doesn't restart the process), so
+        # a missing mode_summary must not crash the page: ui_mode then reads "{}"
+        # as the keyless wording, which is right for the public demo.
+        mode = s.mode_summary() if hasattr(s, "mode_summary") else {}
         return {"status": "ok", "version": e["version"], "keyless": s.is_keyless,
-                "mode": s.mode_summary(), "backend": "in-process",
+                "mode": mode, "backend": "in-process",
                 "limits": {"token_budget": s.token_budget, "max_iterations": s.max_iterations}}
     try:
         return httpx.get(f"{API_URL}/health", timeout=5).json()
