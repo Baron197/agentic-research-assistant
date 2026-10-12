@@ -48,9 +48,7 @@ def test_compare_shows_positive_delta():
     tasks_path = Path(__file__).resolve().parents[1] / "eval" / "tasks.jsonl"
     tasks = load_tasks(tasks_path)[:4]
     report = evaluate_compare(tasks, Settings())
-    agg = report["aggregate"]
-    assert agg["coverage_on"] >= agg["coverage_off"]
-    assert agg["coverage_delta"] > 0
+    assert report["aggregate"]["coverage_delta"] > 0  # coverage_on - coverage_off
 
 
 def test_results_title_names_the_mode_it_was_run_in():

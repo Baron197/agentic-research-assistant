@@ -5,15 +5,16 @@ on:
     branches: [main]
   pull_request:
 
+env:
+  # Force the keyless providers; CI never needs secrets or network.
+  LLM_PROVIDER: fake
+  SEARCH_PROVIDER: fake
+  FETCH_PROVIDER: fake
+  PYTHONPATH: src
+
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      # Force the keyless providers; CI never needs secrets or network.
-      LLM_PROVIDER: fake
-      SEARCH_PROVIDER: fake
-      FETCH_PROVIDER: fake
-      PYTHONPATH: src
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -27,3 +28,19 @@ jobs:
         run: pytest -q
       - name: Evaluation gate (citation coverage)
         run: python -m eval.run_eval --min-citation-coverage 0.8
+
+  extras:
+    # The MCP server, DSPy backend and PDF-corpus tests skip on the plain install
+    # above; this job adds those optional packages so CI runs every test.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install dependencies + optional extras
+        run: pip install -r requirements.txt "mcp>=2.1,<3" "dspy-ai>=3.0,<4" "pypdfium2>=4" reportlab
+      - name: Extras importable (otherwise their tests would skip, not fail)
+        run: python -c "import dspy, mcp, pypdfium2, reportlab"
+      - name: Tests (pytest, full suite)
+        run: pytest -q

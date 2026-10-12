@@ -7,7 +7,7 @@ import pytest
 from agent.guardrails import GuardrailError, build_sources, clamp_input, enforce_citations
 from agent.runner import run
 from agent.schemas import Citation, Claim, Evidence, Report, ReportSection
-from tests.conftest import QUESTION
+from tests.conftest import QUESTION, real_settings
 
 
 def _evidence():
@@ -98,17 +98,10 @@ def test_build_sources_numbers_by_first_appearance_not_lexicographic():
     assert [(s.n, s.evidence_id) for s in sources] == [(i, f"E{i}") for i in range(1, 13)]
 
 
-def _real_settings(**kw):
-    from agent.config import Settings
-
-    return Settings(_env_file=None, llm_provider="openai", openai_api_key="x",
-                    search_provider="web", search_api_key="x", fetch_provider="http", **kw)
-
-
 def test_real_mode_requests_cannot_raise_the_spend_limits():
     from agent.guardrails import cap_request
 
-    real = _real_settings(token_budget=40_000, max_iterations=2)
+    real = real_settings(token_budget=40_000, max_iterations=2)
     asked = {"token_budget": 500_000, "max_iterations": 5, "enable_critic": False}
     assert cap_request(real, asked) == {"token_budget": 40_000, "max_iterations": 2,
                                         "enable_critic": False}

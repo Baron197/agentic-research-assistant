@@ -218,21 +218,14 @@ def test_schema_rejects_a_question_that_is_too_short(settings, monkeypatch):
         _await(mcp_server.mcp.call_tool("research", {"question": "hi"}))
 
 
-def test_list_sources_over_the_protocol(settings, monkeypatch):
+def test_list_sources_tool_and_corpus_resource_serve_the_same_payload(settings, monkeypatch):
     monkeypatch.setattr(mcp_server, "get_settings", lambda: settings)
+    expected = mcp_server.corpus_payload(settings)
 
     result = _await(mcp_server.mcp.call_tool("list_sources", {}))
-
-    payload = json.loads(result.content[0].text)
-    assert payload["mode"] == "local-corpus"
-    assert payload["document_count"] > 0
-
-
-def test_corpus_resource_serves_the_same_payload_as_the_tool(settings, monkeypatch):
-    monkeypatch.setattr(mcp_server, "get_settings", lambda: settings)
+    assert json.loads(result.content[0].text) == expected
 
     resources = {str(r.uri): r for r in _await(mcp_server.mcp.list_resources())}
     assert mcp_server.CORPUS_RESOURCE_URI in resources
-
     contents = list(_await(mcp_server.mcp.read_resource(mcp_server.CORPUS_RESOURCE_URI)))
-    assert json.loads(contents[0].content) == mcp_server.corpus_payload(settings)
+    assert json.loads(contents[0].content) == expected

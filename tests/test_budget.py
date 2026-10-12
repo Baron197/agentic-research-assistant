@@ -13,8 +13,4 @@ def test_tiny_budget_returns_partial(settings):
     assert result.report.partial is True
     # It stopped cleanly; nothing raised, and tokens were actually charged.
     assert result.tokens > 0
-
-
-def test_moderate_budget_completes(settings):
-    result = run(QUESTION, settings=settings, persist=False)
-    assert result.status == "complete"
+    # (That the default budget completes is asserted by test_pipeline's end-to-end run.)

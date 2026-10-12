@@ -13,7 +13,7 @@ import pytest
 from agent import runner
 from agent.config import Settings
 from agent.observability import cost_usd
-from agent.passages import pick_passage
+from agent.passages import MAX_EMBED_CHARS, MAX_PASSAGE_CHARS, pick_passage
 from tests.conftest import QUESTION
 
 TARGET = "What are text embeddings?"
@@ -71,8 +71,11 @@ class ScoredEmbedder:
 
     def __init__(self, target, scores):
         self.target, self.scores = target, scores
+        self.seen: list[str] = []
 
     def embed(self, texts):
+        self.seen = list(texts)
+
         def vec(t):
             if t == self.target:
                 return [1.0, 0.0]
@@ -100,6 +103,21 @@ def test_distant_runner_up_is_not_merged():
     embedder = ScoredEmbedder(TARGET, {_window(0): 0.95, _window(5): 0.94})
     passage = pick_passage(TARGET, QUERY, " ".join(SENTENCES), embedder)
     assert passage.text == _window(0)
+
+
+def test_embedding_input_and_merged_passage_are_bounded():
+    # Embeddings are billed per token, so each passage is cut to MAX_EMBED_CHARS
+    # before it is sent; and when merging the two best passages would run past
+    # MAX_PASSAGE_CHARS, the best one is kept alone.
+    long = [f"Sentence {n} compares " + "cosine, dot product and euclidean distance, " * 8
+            + "in turn." for n in range(8)]
+    window = [" ".join(long[i:i + 3]) for i in range(8)]
+    embedder = ScoredEmbedder(TARGET, {window[2][:MAX_EMBED_CHARS]: 0.95,
+                                       window[4][:MAX_EMBED_CHARS]: 0.94})
+    passage = pick_passage(TARGET, QUERY, " ".join(long), embedder)
+    assert max(len(t) for t in embedder.seen[1:]) == MAX_EMBED_CHARS  # [0] is the target
+    assert len(" ".join(long[2:7])) > MAX_PASSAGE_CHARS  # the merge would be too long...
+    assert passage.text == window[2]                     # ...so the best window stands alone
 
 
 def test_a_one_sentence_page_needs_no_embedding_call():

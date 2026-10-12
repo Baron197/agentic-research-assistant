@@ -7,11 +7,26 @@ tool calls that raise mid-run.
 
 from __future__ import annotations
 
+import pytest
+
 from agent.agents._common import parse_plan, parse_report, structured_call
 from agent.agents.researcher import researcher
 from agent.llm import LLMRequest, LLMResponse
 from agent.runner import build_context
 from agent.schemas import Budget, ResearchPlan, SubQuestion
+
+
+def _one_facet_state(question: str, query: str) -> dict:
+    """Researcher input for a plan with a single sub-question."""
+    return {
+        "plan": ResearchPlan(question="q", sub_questions=[
+            SubQuestion(id="SQ1", question=question, search_queries=[query]),
+        ]),
+        "evidence": [],
+        "budget": Budget(token_limit=60_000),
+        "tool_calls": 0,
+        "researched_sqs": [],
+    }
 
 
 def test_parse_plan_deduplicates_repeated_ids():
@@ -89,17 +104,8 @@ def test_researcher_caps_oversized_snippet(settings):
     ctx = build_context(settings)
     ctx.fetch = HugeUnpunctuatedFetch()
     ctx.search = OneHit()
-    state = {
-        "plan": ResearchPlan(question="q", sub_questions=[
-            SubQuestion(id="SQ1", question="Core concepts: what is a vector database?",
-                        search_queries=["vector database"]),
-        ]),
-        "evidence": [],
-        "budget": Budget(token_limit=60_000),
-        "tool_calls": 0,
-        "researched_sqs": [],
-    }
-    out = researcher(state, ctx)
+    out = researcher(_one_facet_state("Core concepts: what is a vector database?",
+                                      "vector database"), ctx)
 
     assert out["evidence"], "expected the oversized page to still yield evidence"
     snippet = out["evidence"][0].snippet
@@ -109,28 +115,22 @@ def test_researcher_caps_oversized_snippet(settings):
     assert out["budget"].tokens_used < 2_000, out["budget"].tokens_used
 
 
-def test_researcher_survives_tool_failures(settings):
+@pytest.mark.parametrize("concurrency", [1, 4], ids=["serial", "thread-pool"])
+def test_researcher_survives_tool_failures(settings, concurrency):
     # A dead link / provider outage must degrade to "no evidence for that
-    # result", never abort the run (regression).
+    # result", never abort the run (regression). Both fetch paths: the thread-free
+    # one (concurrency 1) and the pool, where each failure is captured per task
+    # and replayed as a "fetch failed" step.
     class FailingFetch:
         name = "failing-fetch"
 
         def fetch(self, url: str) -> str:
             raise RuntimeError("boom: connection reset")
 
-    ctx = build_context(settings)
+    ctx = build_context(settings.model_copy(update={"research_concurrency": concurrency}))
     ctx.fetch = FailingFetch()
-    state = {
-        "plan": ResearchPlan(question="q", sub_questions=[
-            SubQuestion(id="SQ1", question="Core concepts: what is RAG?",
-                        search_queries=["retrieval augmented generation"]),
-        ]),
-        "evidence": [],
-        "budget": Budget(token_limit=60_000),
-        "tool_calls": 0,
-        "researched_sqs": [],
-    }
-    out = researcher(state, ctx)  # must not raise
+    out = researcher(_one_facet_state("Core concepts: what is RAG?",
+                                      "retrieval augmented generation"), ctx)  # must not raise
     assert out["evidence"] == []
     assert out["tool_calls"] > 0  # search + failed fetch attempts were still traced
     assert any("fetch failed" in s.output_summary for s in out["trace"] if s.tool == "fetch")

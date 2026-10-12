@@ -29,6 +29,17 @@ def test_tracer_prices_a_response_by_its_split():
     assert tracer.cost(LLMResponse(content={}, tokens=1_000)) == 0.00015
 
 
+def test_tracer_model_matches_active_backend():
+    # The trace must be priced by the backend that actually ran (regression: the
+    # DSPy backend used to be priced as fake-llm -> $0 for a paid run).
+    from agent.config import Settings
+    from agent.runner import _tracer_model
+
+    assert _tracer_model(Settings()) == "fake-llm"
+    assert _tracer_model(Settings(llm_provider="openai", openai_model="gpt-4o")) == "gpt-4o"
+    assert _tracer_model(Settings(agent_backend="dspy")) == "gpt-4o-mini"
+
+
 def test_only_llm_calls_are_priced(settings, monkeypatch):
     # Price the fake LLM's estimated usage as if it were gpt-4o-mini.
     from agent import runner

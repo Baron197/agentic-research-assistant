@@ -5,6 +5,8 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.conftest import real_settings
+
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
@@ -21,6 +23,10 @@ def test_health(client):
     body = client.get("/health").json()
     assert body["status"] == "ok"
     assert body["keyless"] is True
+    # The UI's sidebar mode box and its slider limits are built from these two.
+    assert body["mode"] == {"llm": "rule-based", "sources": "corpus", "corpus": "bundled",
+                            "evidence": "words"}
+    assert body["limits"] == {"token_budget": 60_000, "max_iterations": 2}
 
 
 def test_research_happy_path(client):
@@ -30,10 +36,8 @@ def test_research_happy_path(client):
     assert data["status"] == "complete"
     assert data["citation_coverage"] == 1.0
     assert data["report"]["sources"]
-    # round-trip the run id
-    got = client.get(f"/runs/{data['run_id']}")
-    assert got.status_code == 200
-    assert got.json()["run_id"] == data["run_id"]
+    # support_rate powers the meta line and the critic A/B compare view.
+    assert 0.0 <= data["support_rate"] <= 1.0
 
 
 def test_research_rejects_short_question(client):
@@ -43,12 +47,6 @@ def test_research_rejects_short_question(client):
 def test_research_rejects_out_of_range_iterations(client):
     resp = client.post("/research", json={"question": "valid question text", "max_iterations": 99})
     assert resp.status_code == 422
-
-
-def test_research_response_includes_support_rate(client):
-    # support_rate powers the meta line and the critic A/B compare view.
-    data = client.post("/research", json={"question": "What is reranking?"}).json()
-    assert "support_rate" in data and 0.0 <= data["support_rate"] <= 1.0
 
 
 def test_corpus_endpoint_lists_documents(client):
@@ -80,25 +78,19 @@ def test_run_id_with_path_characters_is_404(client):
 
 
 def test_metrics_endpoint(client):
+    # (The shape of an empty aggregate is covered in test_observability.)
+    assert client.get("/metrics").json()["runs"] == 0
     client.post("/research", json={"question": "What is chunking in RAG?"})
-    body = client.get("/metrics").json()
-    assert body["runs"] >= 1
+    assert client.get("/metrics").json()["runs"] == 1
 
 
-def test_list_runs_returns_recent_with_question(client):
-    client.post("/research", json={"question": "What is chunking in RAG?"})
-    body = client.get("/runs?limit=5").json()
-    assert body["runs"], "expected the just-persisted run to be listed"
-    top = body["runs"][0]
-    assert top["question"]  # question is carried in the summary for the browser
-    assert "citation_coverage" in top and "status" in top
-
-
-def test_list_runs_is_newest_first(client):
+def test_list_runs_is_newest_first_with_summaries(client):
     client.post("/research", json={"question": "What is reranking?"})
     client.post("/research", json={"question": "What is hybrid search in RAG?"})
-    runs = client.get("/runs").json()["runs"]
-    assert runs[0]["question"] == "What is hybrid search in RAG?"  # most recent first
+    runs = client.get("/runs?limit=5").json()["runs"]
+    assert [r["question"] for r in runs] == ["What is hybrid search in RAG?",
+                                             "What is reranking?"]  # most recent first
+    assert "citation_coverage" in runs[0] and "status" in runs[0]  # the History page shows these
 
 
 def test_list_runs_validates_limit(client):
@@ -110,6 +102,7 @@ def test_get_run_is_enriched_for_reload(client):
     # A persisted run must come back with the derived fields the UI re-renders.
     run_id = client.post("/research", json={"question": "What is reranking?"}).json()["run_id"]
     detail = client.get(f"/runs/{run_id}").json()
+    assert detail["run_id"] == run_id
     assert detail["markdown"] and "citation_coverage" in detail
     assert detail["trace"] and "evidence" in detail  # tabs need these too
 
@@ -118,38 +111,6 @@ def test_research_rejects_whitespace_question(client):
     # A whitespace-only question must be a 422 (validation), not a 500.
     resp = client.post("/research", json={"question": "      "})
     assert resp.status_code == 422
-
-
-def test_metrics_stable_shape_when_empty(client):
-    # /metrics returns a stable full-shape dict even before any run is persisted.
-    body = client.get("/metrics").json()
-    for key in ("runs", "avg_cost_usd", "avg_latency_ms", "p95_latency_ms",
-                "avg_steps", "avg_citation_coverage"):
-        assert key in body
-
-
-def test_health_reports_the_run_limits(client):
-    limits = client.get("/health").json()["limits"]
-    assert limits == {"token_budget": 60_000, "max_iterations": 2}
-
-
-def test_health_describes_the_mode(client):
-    assert client.get("/health").json()["mode"] == {
-        "llm": "rule-based", "sources": "corpus", "corpus": "bundled", "evidence": "words"}
-
-
-def test_mode_summary_for_real_configurations():
-    from agent.config import Settings
-
-    web = Settings(_env_file=None, llm_provider="openai", openai_api_key="x",
-                   search_provider="web", search_api_key="x", fetch_provider="http")
-    assert web.mode_summary() == {"llm": "gpt-4o-mini", "sources": "web", "corpus": "bundled",
-                                  "evidence": "meaning"}
-    # Real LLM over your own documents (CORPUS_DIR), ranked by words.
-    own = Settings(_env_file=None, llm_provider="openai", openai_api_key="x",
-                   evidence_ranking="lexical", corpus_dir="C:/my-notes")
-    assert own.mode_summary() == {"llm": "gpt-4o-mini", "sources": "corpus", "corpus": "custom",
-                                  "evidence": "words"}
 
 
 def test_removed_claims_are_returned_and_persisted(client):
@@ -162,12 +123,9 @@ def test_removed_claims_are_returned_and_persisted(client):
 def test_real_mode_api_caps_the_requested_budget(client, monkeypatch):
     # A paid deployment's TOKEN_BUDGET / MAX_ITERATIONS bound what a caller asks for.
     import agent.api as api
-    from agent.config import Settings
     from agent.schemas import Report, RunResult
 
-    real = Settings(_env_file=None, llm_provider="openai", openai_api_key="x",
-                    search_provider="web", search_api_key="x", fetch_provider="http",
-                    token_budget=40_000, max_iterations=2)
+    real = real_settings(token_budget=40_000, max_iterations=2)
     seen = {}
 
     def fake_run(question, *, settings, **overrides):

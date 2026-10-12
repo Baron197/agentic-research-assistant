@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from agent.runner import run
 from tests.conftest import QUESTION
 
@@ -12,34 +14,18 @@ def _has_synthesis(result) -> bool:
     return any(c.text.startswith(SYNTH_PREFIX) for c in result.report.all_claims())
 
 
-def test_critic_triggers_exactly_one_revise(settings):
-    result = run(QUESTION, settings=settings.model_copy(update={"max_iterations": 2}),
+@pytest.mark.parametrize(("cap", "iterations", "status"), [
+    (2, 1, "complete"),  # the default: one revise removes the planted claim, then converges
+    (1, 1, "complete"),  # a cap of 1 still allows that revise -> complete, not partial
+    (0, 0, "partial"),   # no revise allowed: the claim is still removed, but unconfirmed
+])
+def test_iteration_cap(settings, cap, iterations, status):
+    result = run(QUESTION, settings=settings.model_copy(update={"max_iterations": cap}),
                  persist=False)
-    # The deliberately-unsupported synthesis claim forces one revise, then converges.
-    assert result.iterations == 1
-    assert result.status == "complete"
-    assert not _has_synthesis(result)
-
-
-def test_one_iteration_still_converges_to_complete(settings):
-    # max_iterations=1 permits exactly one revise loop, after which the critic
-    # accepts -> the run is COMPLETE (not partial) and the synthesis claim is gone.
-    result = run(QUESTION, settings=settings.model_copy(update={"max_iterations": 1}),
-                 persist=False)
-    assert result.iterations == 1
-    assert result.status == "complete"
-    assert not _has_synthesis(result)
-
-
-def test_zero_iterations_is_partial_but_clean(settings):
-    # max_iterations=0 forbids any revise loop: the critic still removes the
-    # unsupported claim, but cannot confirm via a second pass -> partial.
-    result = run(QUESTION, settings=settings.model_copy(update={"max_iterations": 0}),
-                 persist=False)
-    assert result.iterations == 0
-    assert result.status == "partial"
-    assert result.report.partial is True
-    assert not _has_synthesis(result)  # unsupported claim removed regardless
+    assert result.iterations == iterations
+    assert result.status == status
+    assert result.report.partial is (status == "partial")
+    assert not _has_synthesis(result)  # the unsupported claim is removed regardless
 
 
 def test_critic_off_keeps_uncited_claim(settings):
@@ -51,6 +37,7 @@ def test_critic_off_keeps_uncited_claim(settings):
     assert off.citation_coverage < on.citation_coverage
     assert on.citation_coverage == 1.0
     assert _has_synthesis(off)
+    assert off.removed_claims == []
 
 
 def test_run_records_the_claims_the_critic_removed(settings):
@@ -60,7 +47,3 @@ def test_run_records_the_claims_the_critic_removed(settings):
     assert len(result.removed_claims) == 1
     assert result.removed_claims[0].startswith(SYNTH_PREFIX)
     assert all(c.text not in result.removed_claims for c in result.report.all_claims())
-
-    off = run(QUESTION, settings=settings.model_copy(update={"enable_critic": False}),
-              persist=False)
-    assert off.removed_claims == []

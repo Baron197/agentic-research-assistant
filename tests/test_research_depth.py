@@ -37,35 +37,3 @@ def test_depth_setting_gathers_more_sources(settings):
     assert len(deep.report.all_claims()) > len(shallow.report.all_claims())
     assert deep.status == "complete"
     assert all(c.is_cited for c in deep.report.all_claims())
-
-
-def test_parallel_researcher_survives_failing_fetch(settings):
-    # A provider that raises must degrade gracefully even on the threaded path
-    # (the failure is captured per task and replayed as a "fetch failed" step).
-    from agent.agents.researcher import researcher
-    from agent.runner import build_context
-    from agent.schemas import Budget, ResearchPlan, SubQuestion
-
-    class FailingFetch:
-        name = "failing-fetch"
-
-        def fetch(self, url: str) -> str:
-            raise RuntimeError("boom: connection reset")
-
-    ctx = build_context(settings.model_copy(update={"research_concurrency": 8}))
-    ctx.fetch = FailingFetch()
-    state = {
-        "plan": ResearchPlan(question="q", sub_questions=[
-            SubQuestion(id="SQ1", question="Core concepts: what is RAG?",
-                        search_queries=["retrieval augmented generation"]),
-        ]),
-        "evidence": [],
-        "budget": Budget(token_limit=60_000),
-        "tool_calls": 0,
-        "researched_sqs": [],
-    }
-    out = researcher(state, ctx)  # must not raise, even with a thread pool
-    assert out["evidence"] == []
-    assert out["tool_calls"] > 0
-    assert any("fetch failed" in s.output_summary
-               for s in out["trace"] if s.tool == "fetch")

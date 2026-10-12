@@ -30,14 +30,3 @@ def test_run_persists_trace(settings):
     run_file = settings.traces_dir / f"{result.run_id}.json"
     index = settings.traces_dir / "index.jsonl"
     assert run_file.exists() and index.exists()
-
-
-def test_tracer_model_matches_active_backend():
-    # The trace must be priced by the backend that actually ran (regression: the
-    # DSPy backend used to be priced as fake-llm -> $0 for a paid run).
-    from agent.config import Settings
-    from agent.runner import _tracer_model
-
-    assert _tracer_model(Settings()) == "fake-llm"
-    assert _tracer_model(Settings(llm_provider="openai", openai_model="gpt-4o")) == "gpt-4o"
-    assert _tracer_model(Settings(agent_backend="dspy")) == "gpt-4o-mini"

@@ -8,6 +8,7 @@ from agent.cache import CachedSearch
 from agent.config import Settings
 from agent.tools.fetch import FakeFetch
 from agent.tools.search import FakeSearch
+from tests.conftest import real_settings
 
 
 def _corpus_dir():
@@ -152,11 +153,7 @@ def test_real_mode_factories_wire_up_without_network():
     from agent.tools.fetch import HttpFetch, get_fetch
     from agent.tools.search import OpenWebSearch, get_search
 
-    real = Settings(
-        llm_provider="openai", openai_api_key="x",
-        search_provider="web", search_api_key="x", search_backend="tavily",
-        fetch_provider="http", enable_cache=False,
-    )
+    real = real_settings(enable_cache=False)  # uncached, so get_search returns the raw tool
     assert isinstance(get_search(real), OpenWebSearch)
     assert isinstance(get_fetch(real), HttpFetch)
     assert isinstance(get_llm(real), OpenAILLM)

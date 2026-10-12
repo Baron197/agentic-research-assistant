@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from agent.config import PROJECT_ROOT, Settings
-from tests.conftest import isolate_from_local_config
+from tests.conftest import isolate_from_local_config, real_settings
 
 
 def test_incompatible_provider_mix_is_rejected():
@@ -16,12 +16,18 @@ def test_incompatible_provider_mix_is_rejected():
                  search_api_key="k")
     with pytest.raises(ValueError):
         Settings(_env_file=None, search_provider="fake", fetch_provider="http")
+    assert real_settings().search_provider == "web"  # the matched pair is accepted
 
 
-def test_matched_real_providers_are_accepted():
-    s = Settings(_env_file=None, search_provider="web", fetch_provider="http",
-                 search_api_key="k")
-    assert s.search_provider == "web"
+def test_mode_summary_for_real_configurations():
+    # /health's "mode" (the UI's sidebar box and Guide pages) for the two real setups.
+    assert real_settings().mode_summary() == {"llm": "gpt-4o-mini", "sources": "web",
+                                              "corpus": "bundled", "evidence": "meaning"}
+    # Real LLM over your own documents (CORPUS_DIR), ranked by words.
+    own = Settings(_env_file=None, llm_provider="openai", openai_api_key="x",
+                   evidence_ranking="lexical", corpus_dir="C:/my-notes")
+    assert own.mode_summary() == {"llm": "gpt-4o-mini", "sources": "corpus", "corpus": "custom",
+                                  "evidence": "words"}
 
 
 def test_api_keys_are_stripped_of_whitespace():

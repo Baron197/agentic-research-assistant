@@ -55,4 +55,11 @@ def settings(tmp_path):
     )
 
 
+def real_settings(**overrides) -> Settings:
+    """Real mode (OpenAI + live web) with dummy keys, for tests that never make a call."""
+    return Settings(_env_file=None, llm_provider="openai", openai_api_key="x",
+                    search_provider="web", search_api_key="x", fetch_provider="http",
+                    **overrides)
+
+
 QUESTION = "What are the main approaches to retrieval-augmented generation and their trade-offs?"
