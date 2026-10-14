@@ -12,8 +12,11 @@ fastapi>=0.110
 uvicorn>=0.27
 httpx>=0.27
 
-# UI (thin Streamlit client). Not imported by the test suite.
-streamlit>=1.33,<2
+# UI (thin Streamlit client). Not imported by the test suite. Capped at the newest
+# MINOR version checked: the dark theme restyles Streamlit's own HTML, which can
+# change in any release (1.65 rebuilt the inputs, expanders and tooltips). Raise the
+# cap after re-checking dark-mode contrast on the new version.
+streamlit>=1.58,<1.66
 
 # Dev / CI tooling.
 ruff>=0.4

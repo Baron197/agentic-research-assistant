@@ -119,7 +119,11 @@ def _theme_css(dark: bool) -> str:
         --text:#1f2933; --muted:#5d6b79; --border:#e2eaf2; --code-bg:#eef3f8;
         --stat-default:#1b3a5c; --revise-bg:#fff8ec; --code-fg:#166534;
         --ok:#23722f; --warn:#a85a10; --bad:#b42318; --info:#2e6da4; --alert-ok-fg:#14532d;
+        --link:#1d64a8;
       }
+      /* Links in text and captions (an evidence item's source URL, say). */
+      .stApp [data-testid="stMarkdownContainer"] a, .stApp [data-testid="stCaptionContainer"] a {
+        color:var(--link) !important; }
       /* Streamlit draws captions and slider ticks as the text colour at 60%
          opacity: too faint on light surfaces, invisible on the dark one. */
       [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p,
@@ -172,6 +176,7 @@ def _theme_css(dark: bool) -> str:
         --text:#e6e9ef; --muted:#98a3b3; --border:#2b3344; --code-bg:#232b3a;
         --stat-default:#cfd8e6; --revise-bg:#2a2418; --code-fg:#e6e9ef;
         --ok:#4cc26a; --warn:#f0a04b; --bad:#ff7b72; --info:#7fb2e5; --alert-ok-fg:#e6e9ef;
+        --link:#7fb2e5;
       }
       .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"] {
         background:var(--page-bg); }
@@ -187,9 +192,14 @@ def _theme_css(dark: bool) -> str:
       section[data-testid="stSidebar"] a { color:var(--text) !important; }
       .stApp table td, .stApp table th { border-color:var(--border) !important; }
       .stApp [data-baseweb="input"], .stApp [data-baseweb="base-input"],
+      .stApp [data-testid="stTextInputRootElement"],
       .stApp [data-baseweb="input"] input, .stApp textarea {
         background:var(--card-bg) !important; color:var(--text) !important;
         border-color:var(--border) !important; }
+      /* Typed values: newer Streamlit builds some inputs without baseweb (the
+         number input), and they inherit the light theme's dark text. */
+      .stApp input, .stApp textarea { color:var(--text) !important;
+        -webkit-text-fill-color:var(--text); caret-color:var(--text); }
       /* Secondary buttons only (chips, View, downloads): the primary button keeps
          the theme's blue, so "Run research" still stands out in the dark. */
       .stApp [data-testid="stBaseButton-secondary"] { background:var(--card-bg);
@@ -197,9 +207,10 @@ def _theme_css(dark: bool) -> str:
       .stApp [data-testid="stBaseButton-secondary"] p { color:var(--text); }
       .stApp [data-testid="stBaseButton-primary"] p { color:#ffffff; }
       [data-testid="stHeader"] button, [data-testid="stHeader"] svg { color:var(--text); }
-      /* Help tooltips render outside the app on Streamlit's light surface. */
-      [data-baseweb="tooltip"] div { background-color:var(--card-bg) !important;
-        color:var(--text) !important; }
+      /* Help tooltips render outside the app on Streamlit's light surface.
+         1.65 dropped the baseweb wrapper; stTooltipContent is in both. */
+      [data-baseweb="tooltip"] div, [data-testid="stTooltipContent"] {
+        background-color:var(--card-bg) !important; color:var(--text) !important; }
       /* The JSON viewer has no dark palette: invert it, keeping the hues. */
       [data-testid="stJson"] { filter:invert(0.9) hue-rotate(180deg); }
       .stApp [data-baseweb="tab"] { color:var(--muted); }
@@ -208,6 +219,11 @@ def _theme_css(dark: bool) -> str:
       .stApp [data-testid="stIconMaterial"] { color:var(--text) !important; }
       .stApp [data-testid="stExpander"] details { background:var(--card-bg);
         border-color:var(--border); }
+      /* Newer Streamlit paints an open expander's header with the light theme's
+         near-white surface, under light text. */
+      .stApp [data-testid="stExpander"] summary { background-color:transparent !important; }
+      .stApp [data-testid="stExpander"] summary:hover {
+        background-color:rgba(127, 178, 229, 0.12) !important; }
       .stApp [data-testid="stMetricValue"] { color:var(--text); }
       .stApp [data-testid="stMetricLabel"], .stApp [data-testid="stMetricLabel"] p {
         color:var(--muted); }

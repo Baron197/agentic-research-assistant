@@ -21,10 +21,11 @@ WORKDIR /app
 # keyless runs never load them. trafilatura pulls the article text out of a
 # fetched page; without it, evidence snippets are mostly the page's CSS and menus.
 # Upper bounds stop a future breaking MAJOR release from reaching a deploy
-# unnoticed; the calls the app makes are verified on openai 2.x and 3.x.
+# unnoticed; the calls the app makes are verified on openai 2.x and 3.x. streamlit
+# is capped at the newest MINOR version checked (see requirements.txt).
 RUN pip install --no-cache-dir \
     "langgraph>=0.2" "langchain-core>=0.3" "pydantic>=2.5" "pydantic-settings>=2.1" \
-    "fastapi>=0.110" "uvicorn>=0.27" "httpx>=0.27" "streamlit>=1.33" \
+    "fastapi>=0.110" "uvicorn>=0.27" "httpx>=0.27" "streamlit>=1.58,<1.66" \
     "openai>=1.30,<4" "tavily-python>=0.3,<1" "trafilatura>=1.6,<3"
 
 COPY src ./src
