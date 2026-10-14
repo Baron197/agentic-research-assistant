@@ -2,6 +2,7 @@
 
 Endpoints:
   * ``POST /research``   — run the pipeline, return the cited report + run metadata.
+  * ``POST /research/stream`` — the same run, streamed: progress events, then the result.
   * ``GET  /runs``       — newest-first list of persisted run summaries (history).
   * ``GET  /runs/{id}``  — one persisted run, enriched with markdown + coverage.
   * ``GET  /corpus``     — list the local corpus documents (corpus-coverage view).
@@ -15,15 +16,19 @@ The service is keyless by default — it boots and serves with no API key.
 
 from __future__ import annotations
 
+import json
+import queue
 import re
+import threading
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from . import __version__
 from .config import get_settings
-from .guardrails import GuardrailError, StructuredOutputError, cap_request
+from .guardrails import GuardrailError, StructuredOutputError, cap_request, clamp_input
 from .metrics import support_rate as _support_rate
 from .observability import aggregate, load_run, recent_runs
 from .runner import render_report_markdown, run
@@ -97,10 +102,9 @@ def health() -> dict[str, Any]:
     }
 
 
-@app.post("/research", response_model=ResearchResponse)
-def research(req: ResearchRequest) -> ResearchResponse:
-    settings = get_settings()
-    overrides = cap_request(settings, {
+def _overrides(req: ResearchRequest, settings: Any) -> dict[str, Any]:
+    """The request's run settings, capped at this server's limits in real mode."""
+    return cap_request(settings, {
         k: v
         for k, v in {
             "max_iterations": req.max_iterations,
@@ -110,17 +114,67 @@ def research(req: ResearchRequest) -> ResearchResponse:
         }.items()
         if v is not None
     })
-    try:
-        result = run(req.question, settings=settings, **overrides)
-    except StructuredOutputError as exc:
+
+
+def _run_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, StructuredOutputError):
         # The model returned unusable output — a server-side failure, not the
         # client's fault; 502 keeps the distinction visible to callers.
-        raise HTTPException(status_code=502, detail=f"model output failed validation: {exc}") from exc
+        return HTTPException(status_code=502, detail=f"model output failed validation: {exc}")
+    if isinstance(exc, GuardrailError):
+        return HTTPException(status_code=422, detail=str(exc))
+    return HTTPException(status_code=500, detail=f"research failed: {exc}")
+
+
+@app.post("/research", response_model=ResearchResponse)
+def research(req: ResearchRequest) -> ResearchResponse:
+    settings = get_settings()
+    try:
+        result = run(req.question, settings=settings, **_overrides(req, settings))
+    except Exception as exc:  # noqa: BLE001 - mapped to 502 / 422 / a clean 500
+        raise _run_error(exc) from exc
+    return _response(result)
+
+
+@app.post("/research/stream")
+def research_stream(req: ResearchRequest) -> StreamingResponse:
+    """``POST /research`` with progress: newline-delimited JSON events.
+
+    ``{"type": "progress", "pct": 41, "label": "Reading sources: 2 of 5 pages"}``
+    lines while the run works, then one ``{"type": "result", "data": {...}}`` (the
+    ``POST /research`` body) or ``{"type": "error", "status": 502, "detail": ...}``.
+    A question that fails the input guardrail is still a plain 422.
+    """
+    settings = get_settings()
+    try:
+        clamp_input(req.question, settings.max_question_length)
     except GuardrailError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001 - convert to a clean 500
-        raise HTTPException(status_code=500, detail=f"research failed: {exc}") from exc
+    overrides = _overrides(req, settings)
+    events: queue.Queue[dict[str, Any] | None] = queue.Queue()
 
+    def work() -> None:
+        try:
+            result = run(req.question, settings=settings, **overrides,
+                         progress=lambda f, label: events.put(
+                             {"type": "progress", "pct": round(f * 100), "label": label}))
+            events.put({"type": "result", "data": _response(result).model_dump(mode="json")})
+        except Exception as exc:  # noqa: BLE001 - reported as an error event
+            err = _run_error(exc)
+            events.put({"type": "error", "status": err.status_code, "detail": err.detail})
+        finally:
+            events.put(None)
+
+    threading.Thread(target=work, name="research-stream", daemon=True).start()
+
+    def lines():
+        while (event := events.get()) is not None:
+            yield json.dumps(event) + "\n"
+
+    return StreamingResponse(lines(), media_type="application/x-ndjson")
+
+
+def _response(result: Any) -> ResearchResponse:
     return ResearchResponse(
         run_id=result.run_id,
         status=result.status,

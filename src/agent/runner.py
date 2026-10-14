@@ -20,6 +20,7 @@ from .graph import build_graph
 from .guardrails import clamp_input
 from .llm import get_llm
 from .observability import Tracer, persist_run
+from .progress import Progress, ProgressFn
 from .schemas import Budget, Report, RunResult
 from .tools.embed import get_embedder
 from .tools.fetch import get_fetch
@@ -83,13 +84,21 @@ def run(
     settings: Settings | None = None,
     approval_fn: Callable[[Report | None], bool] | None = None,
     persist: bool = True,
+    progress: ProgressFn | None = None,
     **overrides: Any,
 ) -> RunResult:
-    """Run the full research pipeline and return a structured ``RunResult``."""
+    """Run the full research pipeline and return a structured ``RunResult``.
+
+    ``progress(fraction, label)``, if given, is called as the run moves through
+    its stages (see ``agent.progress``); it only observes and never changes the result.
+    """
     settings = _resolve_settings(settings, overrides)
     question = clamp_input(question, settings.max_question_length)
 
     ctx = build_context(settings, approval_fn=approval_fn)
+    if progress is not None:
+        ctx.progress = Progress(progress, max_iterations=settings.max_iterations,
+                                web=settings.search_provider == "web")
     graph = build_graph(ctx)
 
     initial: dict[str, Any] = {
@@ -138,6 +147,8 @@ def run(
 
     if persist:
         persist_run(result, settings.traces_dir)
+    if ctx.progress is not None:
+        ctx.progress.done()
     return result
 
 

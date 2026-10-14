@@ -33,7 +33,7 @@ priced ``rank`` step after the page's ``fetch`` step.
 from __future__ import annotations
 
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any
 
@@ -99,12 +99,15 @@ def _read_page(ctx: AgentContext, url: str, query: str, target: str) -> _Page:
     return _pick(ctx, ctx.fetch.fetch(url), query, target)
 
 
-def _run_parallel(fns: dict[str, Callable[[], Any]], max_workers: int) -> dict[str, _Outcome]:
+def _run_parallel(fns: dict[str, Callable[[], Any]], max_workers: int,
+                  on_done: Callable[[int, int], None] | None = None) -> dict[str, _Outcome]:
     """Run each ``key -> thunk`` concurrently; return ``{key: _Outcome}``.
 
     Exceptions are captured per task (never raised) so the sequential replay can
     reproduce the exact graceful degradation a one-at-a-time run would show.
-    Results are keyed, so thread-completion order can never affect the output.
+    Results are keyed and returned in key order, so thread-completion order can
+    never affect the output. ``on_done(done, total)`` is called (on this thread)
+    as each task finishes, for the progress bar.
     """
     if not fns:
         return {}
@@ -116,15 +119,19 @@ def _run_parallel(fns: dict[str, Callable[[], Any]], max_workers: int) -> dict[s
                 out[key] = _Outcome(value=fn())
             except Exception as exc:  # noqa: BLE001 - captured, reproduced in replay
                 out[key] = _Outcome(error=exc)
+            if on_done is not None:
+                on_done(len(out), len(fns))
         return out
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        futures = {key: ex.submit(fn) for key, fn in fns.items()}
-        for key, fut in futures.items():
+        futures = {ex.submit(fn): key for key, fn in fns.items()}
+        for fut in as_completed(futures):
             try:
-                out[key] = _Outcome(value=fut.result())
+                out[futures[fut]] = _Outcome(value=fut.result())
             except Exception as exc:  # noqa: BLE001
-                out[key] = _Outcome(error=exc)
-    return out
+                out[futures[fut]] = _Outcome(error=exc)
+            if on_done is not None:
+                on_done(len(out), len(fns))
+    return {key: out[key] for key in fns}
 
 
 def researcher(state: dict[str, Any], ctx: AgentContext) -> dict[str, Any]:
@@ -155,8 +162,10 @@ def researcher(state: dict[str, Any], ctx: AgentContext) -> dict[str, Any]:
         for q in sq.search_queries:
             if q not in queries:
                 queries.append(q)
+    progress = ctx.progress
     search_out = _run_parallel(
-        {q: (lambda q=q: ctx.search.search(q)) for q in queries}, concurrency
+        {q: (lambda q=q: ctx.search.search(q)) for q in queries}, concurrency,
+        on_done=(lambda d, t: progress.researched("search", d, t)) if progress else None,
     )
 
     # Prefetch only the URLs a successful replay would consume — each facet's first
@@ -185,7 +194,8 @@ def researcher(state: dict[str, Any], ctx: AgentContext) -> dict[str, Any]:
                 provisional_seen.add(r.url)
                 taken += 1
     fetch_out = _run_parallel(
-        {u: (lambda u=u, qt=qt: _read_page(ctx, u, *qt)) for u, qt in eager.items()}, concurrency
+        {u: (lambda u=u, qt=qt: _read_page(ctx, u, *qt)) for u, qt in eager.items()}, concurrency,
+        on_done=(lambda d, t: progress.researched("read", d, t)) if progress else None,
     )
 
     # --- Sequential replay: identical logic/ordering to a one-at-a-time run.

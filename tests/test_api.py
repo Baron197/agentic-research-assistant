@@ -40,6 +40,38 @@ def test_research_happy_path(client):
     assert 0.0 <= data["support_rate"] <= 1.0
 
 
+def _stream(client, body):
+    import json
+
+    with client.stream("POST", "/research/stream", json=body) as resp:
+        assert resp.status_code == 200
+        return [json.loads(line) for line in resp.iter_lines() if line]
+
+
+def test_research_stream_sends_progress_then_the_result(client):
+    events = _stream(client, {"question": "What is hybrid search in RAG?"})
+    progress = [e["pct"] for e in events if e["type"] == "progress"]
+    assert progress == sorted(progress) and progress[-1] == 100
+    assert [e["type"] for e in events][-1] == "result"
+    data = events[-1]["data"]
+    assert data["status"] == "complete" and data["citation_coverage"] == 1.0
+    assert client.get(f"/runs/{data['run_id']}").status_code == 200  # persisted like POST /research
+
+
+def test_research_stream_reports_failures(client, monkeypatch):
+    import agent.api as api
+    from agent.guardrails import StructuredOutputError
+
+    def failing_run(question, **kwargs):
+        raise StructuredOutputError("not JSON")
+
+    monkeypatch.setattr(api, "run", failing_run)
+    assert _stream(client, {"question": "a valid question"})[-1] == {
+        "type": "error", "status": 502, "detail": "model output failed validation: not JSON"}
+    # Bad input is still refused before anything streams.
+    assert client.post("/research/stream", json={"question": "      "}).status_code == 422
+
+
 def test_research_rejects_short_question(client):
     assert client.post("/research", json={"question": "hi"}).status_code == 422
 

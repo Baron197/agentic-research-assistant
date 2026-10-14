@@ -5,7 +5,7 @@
 [![Live demo](https://img.shields.io/badge/Live%20demo-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://agentic-research-assistant-ra3rebpqgkqvyyw5wryrma.streamlit.app/)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
 [![CI](https://github.com/Baron197/agentic-research-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/Baron197/agentic-research-assistant/actions/workflows/ci.yml)
-[![tests](https://img.shields.io/badge/tests-112%20passing-brightgreen.svg)](#testing--ci)
+[![tests](https://img.shields.io/badge/tests-118%20passing-brightgreen.svg)](#testing--ci)
 [![Lint: ruff](https://img.shields.io/badge/lint-ruff-46a2f1.svg)](https://github.com/astral-sh/ruff)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Keyless](https://img.shields.io/badge/runs-keyless%20%240.00-brightgreen.svg)](#quickstart-keyless)
@@ -30,7 +30,7 @@
 - **A no-fabricated-sources guarantee** — `enforce_citations` strips every citation to an ungathered id and drops any claim left with no valid support; proven by a dedicated test.
 - **Guardrails** — schema-validated structured output (validate-and-retry), a hard `max_iterations` cap, and a token/cost budget that ends a run cleanly as `partial`.
 - **Evaluation wired into CI as a gate** — real metrics (no fabricated numbers), a critic ON/OFF A/B, and a `--min-citation-coverage` gate that fails the build on regression. The A/B was also re-run with a real model, where the critic's effect measured ~0 — reported as-is ([see why](#critic-ab--and-what-it-does-not-prove)).
-- **First-class observability** — every run records an ordered trace of steps with tokens, USD cost (list price, input and output priced separately from the provider's own usage counts), and latency; `/metrics` aggregates runs with a nearest-rank p95.
+- **First-class observability** — every run records an ordered trace of steps with tokens, USD cost (list price, input and output priced separately from the provider's own usage counts), and latency; `/metrics` aggregates runs with a nearest-rank p95. While a run works, the UI shows a live progress bar (the current stage, sources read so far, a percentage), streamed from `POST /research/stream`.
 - **Keyless mode** — `make test`, `make eval`, and the API all work with **no API key**; real mode (OpenAI + a real search provider) is one env var away.
 - **DSPy track (optional)** — the LLM reasoning steps can be swapped for declarative DSPy modules whose prompts are **auto-optimized** against the project's own grounding metric ("programming, not prompting"); import-guarded and off by default.
 - **MCP server (optional)** — the same pipeline is exposed over the **Model Context Protocol**, so Claude Desktop (or any MCP host) can call it as a tool and get back a report whose citations are structurally guaranteed. The no-fabricated-sources property becomes a promise the *calling* model can rely on.
@@ -426,7 +426,8 @@ src/agent/
   graph.py           the LangGraph StateGraph (nodes + conditional edges)
   observability.py   Step/Tracer, cost table, thread-safe persistence, aggregate (p95)
   runner.py          run(question, ...) -> RunResult (used by API/UI/eval/CLI)
-  api.py             FastAPI: POST /research, GET /runs, /runs/{id}, /corpus, /health, /metrics
+  progress.py        stage / search / page-read events -> (fraction, label) for a progress bar
+  api.py             FastAPI: POST /research (+ /research/stream), GET /runs, /runs/{id}, /corpus, /health, /metrics
   mcp_server.py      OPTIONAL MCP server (3 tools + 1 resource over stdio); import-guarded
   metrics.py         shared eval metrics (reused by eval + the DSPy optimizer)
   dspy_modules.py    OPTIONAL DSPy backend (Signatures + DSPyLLM); import-guarded
@@ -438,7 +439,7 @@ data/corpus/         11 seed docs (the "web" FakeSearch/FakeFetch operate over)
 eval/
   tasks.jsonl        12 golden tasks (incl. 2 out-of-corpus abstention checks)
   run_eval.py        metrics + critic A/B + CI gate
-tests/               deterministic, keyless end-to-end + unit tests (112; 25 need optional extras, which CI installs in a second job)
+tests/               deterministic, keyless end-to-end + unit tests (118; 25 need optional extras, which CI installs in a second job)
 docs/screenshots/    UI screenshots used in this README
 Dockerfile  docker-compose.yml  .dockerignore  Makefile  pyproject.toml  requirements.txt
 .env.example  .gitattributes  .github/workflows/ci.yml
@@ -447,7 +448,7 @@ README.md  ARCHITECTURE.md  DEPLOYMENT.md  REAL_MODE.md  LICENSE
 
 ## Testing & CI
 
-`make test` runs a fast, deterministic, keyless suite of **112 tests** (graph
+`make test` runs a fast, deterministic, keyless suite of **118 tests** (graph
 end-to-end, no-fabricated-sources, the one-revise critic loop + iteration cap,
 tiny-budget → `partial`, the **parallel researcher fan-out** — proving a
 concurrent run is byte-identical to a serial one — the **depth** knob, the
@@ -458,15 +459,16 @@ a hermetic test setup that ignores your local `.env` and shell variables (so a
 real-mode machine can't make `pytest` spend money), the fetcher keeping only article
 text (and refusing pages without any), real mode's passage ranking by meaning (with a
 stand-in embedder: pricing, size limits, fallback, parallel = serial), the real-mode spend ceiling,
-the record of claims the critic removed,
-and the API incl. the `/runs`, `/corpus`, `enable_critic` and 422 paths).
+the record of claims the critic removed, the progress a run reports (every stage, in order,
+never backwards, without changing the result),
+and the API incl. the `/runs`, `/corpus`, `/research/stream`, `enable_critic` and 422 paths).
 Twenty-five of them exercise **optional** extras
 (18 the MCP server — including its schemas, its real-mode cost guard, and a
 stdout-purity check that protects the stdio transport — 6 the DSPy backend, 1
 PDF-corpus reading) and do not run unless those extras are installed. So a
-default keyless install reports **87 passed, 3 skipped** — the three
+default keyless install reports **93 passed, 3 skipped** — the three
 optional groups skip as whole units — while a machine with the extras present
-runs all **112**, still keyless via fakes / `DummyLM`. CI
+runs all **118**, still keyless via fakes / `DummyLM`. CI
 (`.github/workflows/ci.yml`) runs `ruff check .` → `pytest -q` → the eval gate, and a
 second job installs the optional extras and runs the full suite, so every test runs in CI,
 all keyless with no secrets.

@@ -23,9 +23,13 @@ from __future__ import annotations
 
 import hmac
 import html
+import inspect
 import json
 import os
+import queue
+import threading
 import time
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -228,6 +232,11 @@ def _theme_css(dark: bool) -> str:
       .stApp [data-testid="stMetricLabel"], .stApp [data-testid="stMetricLabel"] p {
         color:var(--muted); }
       .stApp code { background:var(--code-bg); color:var(--code-fg); }
+      /* While a run works: the spinner ring and the progress bar's light track. */
+      .stApp [data-testid="stSpinnerIcon"] { border-color:var(--border) !important;
+        border-top-color:var(--text) !important; }
+      .stApp [data-testid="stProgressBarTrack"] { background-color:var(--border) !important; }
+      .stApp [data-testid="stProgressBarTrack"] > div { background-color:var(--info) !important; }
       .stApp [data-testid="stNumberInputContainer"] { background:var(--card-bg); }
       .stApp [data-testid="stNumberInputStepDown"], .stApp [data-testid="stNumberInputStepUp"] {
         background:var(--card-bg); color:var(--text); }
@@ -394,24 +403,61 @@ def _base_payload() -> dict[str, Any]:
             "require_approval": bool(ss.get("approval", False))}
 
 
-def _post_research(payload: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
-    """Run one research request; return (data, None) on success or (None, error)."""
-    if _backend() == "embedded":
-        return _embedded_research(payload)
+ProgressFn = Callable[[float, str], None]
+Outcome = tuple[dict[str, Any] | None, str | None]  # (data, None) or (None, error)
+
+
+def _api_error(resp: httpx.Response) -> str:
     try:
+        d = resp.json().get("detail", resp.text)
+    except Exception:  # noqa: BLE001
+        d = resp.text
+    if isinstance(d, list):  # FastAPI's validation errors: keep just the messages
+        d = "; ".join(str(e.get("msg", e)) if isinstance(e, dict) else str(e) for e in d)
+    return f"API error {resp.status_code}: {d}"
+
+
+def _http_research(payload: dict[str, Any], on_progress: ProgressFn | None = None) -> Outcome:
+    """POST /research; with ``on_progress``, the streamed variant that reports progress."""
+    if on_progress is not None:
+        streamed = _stream_research(payload, on_progress)
+        if streamed is not None:
+            return streamed
+    try:  # no progress wanted, or an API too old to stream
         resp = httpx.post(f"{API_URL}/research", json=payload, timeout=REQUEST_TIMEOUT)
     except Exception as exc:  # noqa: BLE001
         return None, f"Request failed: {exc}"
     if resp.status_code != 200:
-        try:
-            d = resp.json().get("detail", resp.text)
-        except Exception:  # noqa: BLE001
-            d = resp.text
-        return None, f"API error {resp.status_code}: {d}"
+        return None, _api_error(resp)
     return resp.json(), None
 
 
-def _embedded_research(payload: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
+def _stream_research(payload: dict[str, Any], on_progress: ProgressFn) -> Outcome | None:
+    """POST /research/stream: progress events, then the result. None if the API lacks it."""
+    try:
+        with httpx.stream("POST", f"{API_URL}/research/stream", json=payload,
+                          timeout=REQUEST_TIMEOUT) as resp:
+            if resp.status_code in (404, 405):
+                return None
+            if resp.status_code != 200:
+                resp.read()
+                return None, _api_error(resp)
+            for line in resp.iter_lines():
+                if not line.strip():
+                    continue
+                event = json.loads(line)
+                if event["type"] == "progress":
+                    on_progress(event["pct"] / 100, event["label"])
+                elif event["type"] == "result":
+                    return event["data"], None
+                elif event["type"] == "error":
+                    return None, f"API error {event['status']}: {event['detail']}"
+    except Exception as exc:  # noqa: BLE001
+        return None, f"Request failed: {exc}"
+    return None, "The research stream ended without a result."
+
+
+def _embedded_research(payload: dict[str, Any], on_progress: ProgressFn | None = None) -> Outcome:
     """In-process equivalent of POST /research (runs the pipeline directly)."""
     e = _embed()
     if e is None:
@@ -421,8 +467,13 @@ def _embedded_research(payload: dict[str, Any]) -> tuple[dict[str, Any] | None, 
         k: payload[k] for k in
         ("max_iterations", "token_budget", "require_approval", "enable_critic")
         if payload.get(k) is not None})
+    run = e["run"]
+    # An agent package loaded before progress existed (Streamlit Cloud keeps it in
+    # memory across a push) has no progress parameter: run without the bar.
+    if on_progress is not None and "progress" in inspect.signature(run).parameters:
+        overrides["progress"] = on_progress
     try:
-        res = e["run"](payload.get("question", ""), settings=settings, **overrides)
+        res = run(payload.get("question", ""), settings=settings, **overrides)
     except Exception as exc:  # noqa: BLE001
         return None, f"Research failed: {exc}"
     return {
@@ -436,11 +487,63 @@ def _embedded_research(payload: dict[str, Any]) -> tuple[dict[str, Any] | None, 
     }, None
 
 
-# --- state mutations (button callbacks) -------------------------------------
-def run_research() -> None:
-    """Single run from the current widget state; store result + detail in session."""
-    with st.spinner("Planning → researching → writing → verifying…"):
-        data, err = _post_research({**_base_payload(), "enable_critic": bool(ss.get("critic", True))})
+# --- runs ----------------------------------------------------------------------
+# A run works on a background thread and its job lives in session state, so it
+# outlives a rerun of the page: changing a setting, toggling the theme or opening
+# another page mid-run used to drop the report (it only reached History). Every
+# page run re-attaches to the job, shows its progress, and stores the result.
+def _start_job(kind: str, payloads: list[dict[str, Any]], prefixes: list[str]) -> None:
+    """Run ``payloads`` one after another; their progress shares one bar."""
+    research = _embedded_research if _backend() == "embedded" else _http_research
+    job: dict[str, Any] = {"kind": kind, "events": queue.Queue(), "results": [],
+                           "last": (0.0, f"{prefixes[0]}Starting…"), "done": False}
+    share = 1 / len(payloads)
+
+    def work() -> None:  # session state is never touched here, only this dict
+        for i, (payload, prefix) in enumerate(zip(payloads, prefixes, strict=True)):
+            def report(fraction: float, label: str, i: int = i, prefix: str = prefix) -> None:
+                job["events"].put(((i + fraction) * share, prefix + label))
+            try:
+                job["results"].append(research(payload, report))
+            except Exception as exc:  # noqa: BLE001
+                job["results"].append((None, f"Research failed: {exc}"))
+        job["done"] = True
+
+    threading.Thread(target=work, name=f"ara-{kind}", daemon=True).start()
+    ss.job = job
+
+
+def _follow_job(kind: str, spinner: str) -> list[Outcome] | None:
+    """Show the running ``kind`` job's progress here; return its results once done."""
+    job = ss.get("job")
+    if not job or job["kind"] != kind:
+        return None
+    with st.spinner(spinner):
+        bar = st.progress(0)
+        while not (job["done"] and job["events"].empty()):
+            try:
+                job["last"] = job["events"].get(timeout=0.5)
+            except queue.Empty:
+                pass  # redraw anyway: Streamlit only acts on a click while the page draws
+            fraction, label = job["last"]
+            pct = min(100, int(fraction * 100))
+            bar.progress(pct, text=f"{label} · {pct}%")
+        bar.empty()
+    del ss["job"]
+    return job["results"]
+
+
+def _job_elsewhere(kind: str) -> None:
+    """Explain the disabled run button while the other page's run is working."""
+    job = ss.get("job")
+    if job and job["kind"] != kind:
+        where = "Research" if job["kind"] == "research" else "Critic A/B"
+        st.caption(f"A run is still working on the {where} page; open it to follow along.")
+
+
+def store_research(results: list[Outcome]) -> None:
+    """Keep a finished run for the Research page: the result, or the error."""
+    data, err = results[0]
     if err:
         ss.error, ss.result, ss.detail = err, None, None
         return
@@ -448,11 +551,9 @@ def run_research() -> None:
     ss.detail = api_get(f"/runs/{data['run_id']}")  # full trace + evidence
 
 
-def run_compare() -> None:
-    """Run the same question with the critic ON and OFF — a live demo of the removal mechanism."""
-    with st.spinner("Running the critic ON and OFF…"):
-        on, err_on = _post_research({**_base_payload(), "enable_critic": True})
-        off, err_off = _post_research({**_base_payload(), "enable_critic": False})
+def store_compare(results: list[Outcome]) -> None:
+    """Keep the critic ON / OFF pair for the Critic A/B page."""
+    (on, err_on), (off, err_off) = results
     if err_on or err_off:
         ss.error, ss.compare = (err_on or err_off), None
         return
@@ -894,7 +995,19 @@ def page_research() -> None:
         label = ex.split("  (")[0] if m["web"] else ex
         cols[i % 3].button(label, key=f"ex{i}", on_click=pick_example, args=(ex,),
                            use_container_width=True)
-    st.button("Run research", type="primary", on_click=run_research, use_container_width=True)
+    # Started here, not in an on_click callback: what a callback draws (the progress
+    # bar) takes the page's first slot, where the theme's styles live, so the page
+    # lost its theme for the length of the run.
+    if st.button("Run research", type="primary", use_container_width=True,
+                 disabled="job" in ss) and "job" not in ss:
+        _start_job("research", [{**_base_payload(), "enable_critic": bool(ss.get("critic", True))}],
+                   [""])
+        st.rerun()  # redraw at once with the button disabled, so it can't start a second run
+    _job_elsewhere("research")
+    results = _follow_job("research", "Researching…")
+    if results is not None:
+        store_research(results)
+        st.rerun()  # redraw with the report and the button enabled again
 
     if ss.error:
         st.error(ss.error)
@@ -923,8 +1036,17 @@ def page_compare() -> None:
              "side — a live demonstration of the claim-removal mechanism (keyless mode "
              "plants one uncited claim for the critic to catch).")
     st.text_input("Research question", key="q")
-    st.button("Run A/B comparison", type="primary", on_click=run_compare,
-              use_container_width=True)
+    if st.button("Run A/B comparison", type="primary", use_container_width=True,
+                 disabled="job" in ss) and "job" not in ss:  # not on_click: see page_research
+        base = _base_payload()
+        _start_job("compare", [{**base, "enable_critic": True}, {**base, "enable_critic": False}],
+                   ["Critic ON: ", "Critic OFF: "])
+        st.rerun()
+    _job_elsewhere("compare")
+    results = _follow_job("compare", "Running the critic ON and OFF…")
+    if results is not None:
+        store_compare(results)
+        st.rerun()
     if not m["real"]:
         st.caption("The critic removes uncited / unsupported claims. With it OFF the "
                    "deliberately-uncited synthesis claim survives — visible in the "
@@ -1131,7 +1253,8 @@ def page_guide() -> None:
                 "### Your first question\n"
                 f"1. On the **Research** page, type a question or click an example. {step1}\n"
                 "2. Click **Run research**. The pipeline plans → researches → writes → "
-                f"checks; it takes {typical_run(m)}.\n"
+                f"checks; it takes {typical_run(m)}. A progress bar shows the step it is on "
+                "(sources read so far, for one) and how far along it is.\n"
                 "3. Read the answer: the **[1] [2]** markers are citations; the **Sources** "
                 "list and the **Evidence & sources** tab show the passages they came from.\n"
                 "4. Explore the numbers: **Observability** shows how the system is *running* "

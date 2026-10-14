@@ -140,13 +140,27 @@ def build_graph(ctx: AgentContext):
             return "researcher"
         return "approval" if settings.require_approval else "finalizer"
 
+    def node(name: str, fn: Any):
+        """The node, reporting its start and end to the progress bar if one listens."""
+        bound = partial(fn, ctx=ctx)
+        if ctx.progress is None:
+            return bound
+
+        def reporting(state: dict[str, Any]) -> dict[str, Any]:
+            ctx.progress.node_started(name, state)
+            update = bound(state)
+            ctx.progress.node_finished(name, state, update)
+            return update
+
+        return reporting
+
     g: StateGraph = StateGraph(GraphState)
-    g.add_node("planner", partial(planner, ctx=ctx))
-    g.add_node("researcher", partial(researcher, ctx=ctx))
-    g.add_node("writer", partial(writer, ctx=ctx))
-    g.add_node("critic", partial(critic, ctx=ctx))
-    g.add_node("approval", partial(_approval, ctx=ctx))
-    g.add_node("finalizer", partial(_finalizer, ctx=ctx))
+    g.add_node("planner", node("planner", planner))
+    g.add_node("researcher", node("researcher", researcher))
+    g.add_node("writer", node("writer", writer))
+    g.add_node("critic", node("critic", critic))
+    g.add_node("approval", node("approval", _approval))
+    g.add_node("finalizer", node("finalizer", _finalizer))
 
     g.add_edge(START, "planner")
     g.add_conditional_edges(
