@@ -3,6 +3,7 @@
 Endpoints:
   * ``POST /research``   — run the pipeline, return the cited report + run metadata.
   * ``POST /research/stream`` — the same run, streamed: progress events, then the result.
+  * ``POST /runs/{id}/approval`` — approve or reject a run paused for approval.
   * ``GET  /runs``       — newest-first list of persisted run summaries (history).
   * ``GET  /runs/{id}``  — one persisted run, enriched with markdown + coverage.
   * ``GET  /corpus``     — list the local corpus documents (corpus-coverage view).
@@ -27,11 +28,12 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from . import __version__
+from .approvals import NotAwaitingApproval, is_paused
 from .config import get_settings
 from .guardrails import GuardrailError, StructuredOutputError, cap_request, clamp_input
 from .metrics import support_rate as _support_rate
 from .observability import aggregate, load_run, recent_runs
-from .runner import render_report_markdown, run
+from .runner import render_report_markdown, resume, run
 from .schemas import Report
 from .tools.search import list_corpus
 
@@ -53,7 +55,12 @@ class ResearchRequest(BaseModel):
                           description="The research question.")
     max_iterations: int | None = Field(default=None, ge=0, le=10)
     token_budget: int | None = Field(default=None, ge=1)
-    require_approval: bool | None = None
+    require_approval: bool | None = Field(
+        default=None,
+        description="Pause before the final report until a person approves or rejects "
+                    "it (POST /runs/{run_id}/approval). The run returns status "
+                    "awaiting_approval with the draft.",
+    )
     enable_critic: bool | None = Field(
         default=None,
         description="Toggle the verifying critic. False = the critic-OFF arm of "
@@ -68,6 +75,12 @@ class ResearchRequest(BaseModel):
         if len(stripped) < 3:
             raise ValueError("question must contain at least 3 non-whitespace characters")
         return stripped
+
+
+class ApprovalRequest(BaseModel):
+    """A person's decision on a run paused at the approval gate."""
+
+    approved: bool = Field(strict=True, description="true releases the report; false rejects it.")
 
 
 class ResearchResponse(BaseModel):
@@ -174,6 +187,26 @@ def research_stream(req: ResearchRequest) -> StreamingResponse:
     return StreamingResponse(lines(), media_type="application/x-ndjson")
 
 
+@app.post("/runs/{run_id}/approval", response_model=ResearchResponse)
+def decide(run_id: str, req: ApprovalRequest) -> ResearchResponse:
+    """Approve or reject a run that paused for approval; returns the finished run.
+
+    404 when no run with this id is waiting: unknown, already decided, or
+    forgotten (paused runs live in this server's memory, see ``agent.approvals``).
+    """
+    try:
+        if not _RUN_ID_RE.fullmatch(run_id):
+            raise NotAwaitingApproval(run_id)
+        result = resume(run_id, req.approved)
+    except NotAwaitingApproval as exc:
+        raise HTTPException(status_code=404, detail=(
+            f"run {run_id!r} is not waiting for approval: unknown, already decided, or "
+            "no longer held by this server (a restart forgets paused runs)")) from exc
+    except Exception as exc:  # noqa: BLE001 - mapped to a clean error, as for /research
+        raise _run_error(exc) from exc
+    return _response(result)
+
+
 def _response(result: Any) -> ResearchResponse:
     return ResearchResponse(
         run_id=result.run_id,
@@ -212,6 +245,8 @@ def get_run(run_id: str) -> dict[str, Any]:
     data["markdown"] = render_report_markdown(result.report)
     data["citation_coverage"] = round(result.citation_coverage, 4)
     data["support_rate"] = round(_support_rate(result.report, result.evidence), 4)
+    # A paused run in history can still be decided only while this server holds it.
+    data["approval_pending"] = result.status == "awaiting_approval" and is_paused(run_id)
     return data
 
 

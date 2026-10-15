@@ -23,7 +23,8 @@ from .runner import run
 
 def _build_examples(settings: Settings, dspy: Any, tasks: list[dict[str, Any]]) -> list[Any]:
     """Gather evidence per task with the keyless manual pipeline -> DSPy Examples."""
-    gather = settings.model_copy(update={"agent_backend": "manual", "llm_provider": "fake"})
+    gather = settings.model_copy(update={"agent_backend": "manual", "llm_provider": "fake",
+                                         "require_approval": False})
     examples = []
     for task in tasks:
         if not task.get("in_corpus", True):

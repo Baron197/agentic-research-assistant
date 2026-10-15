@@ -108,7 +108,8 @@ flowchart TD
 ```
 
 `Approval?` runs only when `require_approval` is set; otherwise those edges go
-straight to the finalizer.
+straight to the finalizer. When it runs, it pauses the run for a person (see
+*Human approval* below).
 
 Edges are **conditional functions** built in `build_graph(ctx)`:
 
@@ -131,6 +132,33 @@ Edges are **conditional functions** built in `build_graph(ctx)`:
 Nodes are pure functions `(state, ctx) -> dict`; the context (providers, tracer,
 settings, approval callback) is injected via `functools.partial`, keeping nodes
 free of globals and trivial to unit-test.
+
+### Human approval: pause and resume
+
+With `require_approval` set, the approval node asks for a decision one of two ways:
+
+- **Pause (the app, the API, the CLI).** With no callback, the node calls LangGraph's
+  `interrupt()`. The graph was compiled with a checkpointer (`InMemorySaver`, told
+  which schema classes it may rebuild), so the run stops before the finalizer with
+  its whole state saved under `thread_id = run_id`. `run()` returns the draft as
+  approving it would release it (`assemble_report`: the finalizer's own citation
+  guard and source numbering) with status `awaiting_approval`, and parks the
+  compiled graph in `approvals.py`. `resume(run_id, approved)` sends
+  `Command(resume=approved)`: LangGraph re-runs the approval node, `interrupt()`
+  now returns the decision, and the finalizer sets `complete` / `partial`, or
+  `rejected`. The run keeps its id; its record is written again, and the history
+  and metrics read the latest line for each run.
+- **Callback (Python callers).** `run(..., approval_fn=f)` calls `f(draft)` and
+  continues at once; no checkpointer is involved.
+
+Paused runs live in the API process's memory: the store keeps at most 32, for at
+most a day, and `take()` removes a run as it resumes, so a double click or a second
+tab can't decide it twice (404 from `POST /runs/{id}/approval`). A restart forgets
+them, so a decision must reach the process that paused the run, which is why the
+API runs a single worker; a persistent checkpointer (SQLite / Postgres) is the
+roadmap item that lifts both limits. The A/B page and the eval never ask for
+approval (they measure; they don't release), and the MCP server refuses to run
+when the gate is on, since nobody on an MCP call can approve.
 
 ### Termination & convergence
 
@@ -221,13 +249,14 @@ none are hard-coded.
 - **`cache.py`** — `LRUCache` (lock + `OrderedDict`) and `CachedSearch`/`CachedFetch` wrappers that surface hit/miss counts.
 - **`agents/*.py`** — the four nodes; `_common.py` holds the parsers and the `structured_call` validate/retry helper. The researcher also bounds each evidence snippet (`MAX_SNIPPET_CHARS`) so one unpunctuated page — which sentence-splitting would otherwise return whole — cannot consume the run's entire token budget.
 - **`guardrails.py`** — `clamp_input`, `enforce_citations`, `build_sources`, budget/iteration helpers, `cap_request` (in real mode a request may lower `token_budget` / `max_iterations` but never raise them), `validate_and_retry`.
-- **`graph.py`** — `GraphState`, the approval/finalizer nodes, the conditional routers, and `build_graph`.
-- **`observability.py`** — `Tracer`, list-price cost table (input / cached / output), persistence, `aggregate`.
-- **`runner.py`** — `run()` (the one entry point), `render_report_markdown`, and the CLI. `run(progress=...)` takes an optional callback for a progress bar.
+- **`graph.py`** — `GraphState`, the approval node (`interrupt()` or the callback) and the finalizer, `assemble_report` (shared by the finalizer and a paused run's preview), the conditional routers, the pause checkpointer, and `build_graph`.
+- **`observability.py`** — `Tracer`, list-price cost table (input / cached / output), persistence, `aggregate`. The index is append-only, so a run decided after an approval pause has two lines; `recent_runs` and `aggregate` keep the latest one per run.
+- **`runner.py`** — `run()` (the one entry point), `resume()` for a run paused at the approval gate, `render_report_markdown`, and the CLI, which asks at the keyboard when a run pauses. `run(progress=...)` takes an optional callback for a progress bar.
+- **`approvals.py`** — the paused runs: their compiled graphs (with the checkpoint) by run id, bounded in count and age, thread-safe, and taken out as they resume.
 - **`progress.py`** — turns pipeline events into `(fraction, label)` updates: the graph reports when each node starts and finishes, and the researcher reports each search and page read as it completes (on its own thread, in completion order, while its results stay keyed and in a fixed order). Each stage's share of the bar comes from measured real web runs (planning ~14%, searching and reading ~56%, writing ~23%, checking ~5%); the bar never moves backwards, and a failing callback can't break a run. It only observes: a run reports the same result with or without it (tested).
-- **`api.py`** — FastAPI service with validated request models and mapped errors (422 for rejected input, 502 when the model's output fails validation, 500 otherwise). `POST /research` accepts optional `max_iterations`, `token_budget`, `require_approval`, and `enable_critic` overrides; in real mode the first two are capped at the server's settings, which `GET /health` reports as `limits` (the UI sizes its sidebar from them). `POST /research/stream` runs the same request and streams newline-delimited JSON: progress events, then the result (or an error event with the status the plain endpoint would have returned); input the guardrail rejects is still a plain 422.
+- **`api.py`** — FastAPI service with validated request models and mapped errors (422 for rejected input, 502 when the model's output fails validation, 500 otherwise). `POST /research` accepts optional `max_iterations`, `token_budget`, `require_approval`, and `enable_critic` overrides; in real mode the first two are capped at the server's settings, which `GET /health` reports as `limits` (the UI sizes its sidebar from them). `POST /research/stream` runs the same request and streams newline-delimited JSON: progress events, then the result (or an error event with the status the plain endpoint would have returned); input the guardrail rejects is still a plain 422. A run with `require_approval` comes back `awaiting_approval`; `POST /runs/{id}/approval` with `{"approved": true|false}` (a strict JSON boolean) finishes it and returns the final run, or 404 if no run with that id is waiting. `GET /runs/{id}` adds `approval_pending`, so a client can tell a paused run it can still decide from one this server has forgotten.
 - **`mcp_server.py`** — OPTIONAL Model Context Protocol server (import-guarded; `mcp` is never imported on the keyless path). A fourth caller of `runner.run()` alongside the CLI, API and UI, so no agent, graph or tool changed to support it. Exposes three **tools** (`research`, `list_sources`, `assistant_status`) and one **resource** (`corpus://documents`) over stdio. Three decisions carry the design: (1) MCP callers are pinned to keyless mode unless the operator sets `MCP_ALLOW_REAL_MODE`, because a server answers whoever connects to it and must not spend the operator's budget silently — the downgrade is reported by `assistant_status`, never hidden; (2) the tool surface is a trust boundary, so the *model* may only choose `depth`, never `enable_critic` or `token_budget`; (3) expected failures raise `ToolError` so the message reaches the calling model and it can retry, while anything unexpected becomes the SDK's `UnexpectedToolError` and leaks nothing. Because stdio carries JSON-RPC on stdout, a test asserts the pipeline writes nothing there.
-- **`ui/streamlit_app.py`** — a multi-page Streamlit front-end (five pages via native `st.navigation`: Research, Critic A/B, History, Observability, Guide) that carries **no business logic**: it calls the FastAPI service over HTTP, but transparently falls back to an **embedded in-process backend** (the same `agent` functions the API handlers call; force with `ARA_EMBEDDED=1`) so the whole UI can also deploy as a single self-contained app (e.g. Streamlit Community Cloud). The Research page renders results in six tabs (Report, Evidence & sources, Corpus, Step timeline, Agent graph, Run data) with Markdown/JSON downloads, colour-coded metric cards, example-question chips, and a live critic on/off toggle; while a run works, a progress bar shows the current stage and how far along it is (read from `/research/stream`, or the in-process run's callback; a backend too old to report progress gets a spinner). A run works on a background thread whose job lives in session state, so changing a setting, toggling the theme or opening another page mid-run doesn't lose its report: every page run re-attaches to the job, and the run buttons stay disabled until it finishes. The Observability page is fed by `GET /metrics`. The text adapts to the backend's mode, read from `GET /health` (`keyless`, plus `mode`: model, web or local sources, evidence by meaning or words): the sidebar shows it as a *Keyless demo* or *Real mode* box, and the Research, Critic A/B and Guide pages (seven tabs, including *Real mode* and *FAQ*) describe what that mode actually does, with measured times and costs. An optional password screen (`ARA_UI_PASSWORD`) gates the whole app for a shared real-mode instance; it lives in the app rather than as proxy basic auth because Safari doesn't send basic-auth credentials on WebSockets. Light + dark themes (base theme in `.streamlit/config.toml`, dark mode as CSS variables): every text colour, including status colours and graph labels, clears WCAG AA contrast (4.5:1) on its surface in both themes, checked by an automated audit of every page and tab. The toolbar runs in viewer mode, so a deployed instance shows no developer "Deploy" button. Screenshots in `docs/screenshots/`.
+- **`ui/streamlit_app.py`** — a multi-page Streamlit front-end (five pages via native `st.navigation`: Research, Critic A/B, History, Observability, Guide) that carries **no business logic**: it calls the FastAPI service over HTTP, but transparently falls back to an **embedded in-process backend** (the same `agent` functions the API handlers call; force with `ARA_EMBEDDED=1`) so the whole UI can also deploy as a single self-contained app (e.g. Streamlit Community Cloud). The Research page renders results in six tabs (Report, Evidence & sources, Corpus, Step timeline, Agent graph, Run data) with Markdown/JSON downloads, colour-coded metric cards, example-question chips, and a live critic on/off toggle; while a run works, a progress bar shows the current stage and how far along it is (read from `/research/stream`, or the in-process run's callback; a backend too old to report progress gets a spinner). A run works on a background thread whose job lives in session state, so changing a setting, toggling the theme or opening another page mid-run doesn't lose its report: every page run re-attaches to the job, and the run buttons stay disabled until it finishes. With *Require human approval* on, a paused run shows **Approve** / **Reject** above its draft (on the Research page and when reopened from History); a run the backend no longer holds shows a notice instead of buttons that can't work. The Observability page is fed by `GET /metrics`. The text adapts to the backend's mode, read from `GET /health` (`keyless`, plus `mode`: model, web or local sources, evidence by meaning or words): the sidebar shows it as a *Keyless demo* or *Real mode* box, and the Research, Critic A/B and Guide pages (seven tabs, including *Real mode* and *FAQ*) describe what that mode actually does, with measured times and costs. An optional password screen (`ARA_UI_PASSWORD`) gates the whole app for a shared real-mode instance; it lives in the app rather than as proxy basic auth because Safari doesn't send basic-auth credentials on WebSockets. Light + dark themes (base theme in `.streamlit/config.toml`, dark mode as CSS variables): every text colour, including status colours and graph labels, clears WCAG AA contrast (4.5:1) on its surface in both themes, checked by an automated audit of every page and tab. The toolbar runs in viewer mode, so a deployed instance shows no developer "Deploy" button. Screenshots in `docs/screenshots/`.
 
 ## 9. The DSPy optimization track (optional)
 

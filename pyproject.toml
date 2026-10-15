@@ -13,7 +13,7 @@ authors = [{ name = "Baron Purwa Hartono", email = "Baron197@users.noreply.githu
 keywords = ["langgraph", "agents", "rag", "evaluation", "observability"]
 
 dependencies = [
-    "langgraph>=0.2,<2",
+    "langgraph>=1.0,<2",
     "langchain-core>=0.3",
     "pydantic>=2.5",
     "pydantic-settings>=2.1",

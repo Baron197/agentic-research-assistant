@@ -17,6 +17,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
+from typing import Any
 
 from .llm import LLMResponse
 from .schemas import RunResult, Step
@@ -165,24 +166,35 @@ def load_run(run_id: str, traces_dir: Path) -> RunResult | None:
         return None
 
 
+def _index_rows(traces_dir: Path) -> list[dict[str, Any]]:
+    """The index's run summaries in append order, one per run (torn-line tolerant).
+
+    A run that paused for approval is written twice, paused and then decided;
+    its latest line wins, kept where the run first appeared.
+    """
+    index = Path(traces_dir) / "index.jsonl"
+    if not index.exists():
+        return []
+    rows: dict[Any, dict[str, Any]] = {}
+    for n, raw in enumerate(index.read_text(encoding="utf-8").splitlines()):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            row = json.loads(raw)
+        except json.JSONDecodeError:
+            continue  # tolerate a torn line
+        rows[row.get("run_id") or n] = row
+    return list(rows.values())
+
+
 def recent_runs(traces_dir: Path, limit: int = 20) -> list[dict[str, object]]:
     """Most-recent-first run summaries from the index (torn-line tolerant).
 
     Backs the API's ``GET /runs`` and the UI's run-history browser. Reuses the
     same append-only index that ``aggregate`` reads, so nothing new is persisted.
     """
-    index = Path(traces_dir) / "index.jsonl"
-    if not index.exists():
-        return []
-    rows: list[dict[str, object]] = []
-    for raw in index.read_text(encoding="utf-8").splitlines():
-        raw = raw.strip()
-        if not raw:
-            continue
-        try:
-            rows.append(json.loads(raw))
-        except json.JSONDecodeError:
-            continue  # tolerate a torn line
+    rows = _index_rows(traces_dir)
     rows.reverse()  # index is append-order; newest last -> reverse for newest-first
     return rows[: max(0, limit)]
 
@@ -216,20 +228,7 @@ def aggregate(traces_dir: Path) -> dict[str, float | int]:
     which is the realistic failure mode for an append-only JSONL written by
     multiple processes.
     """
-    index = Path(traces_dir) / "index.jsonl"
-    if not index.exists():
-        return _empty_aggregate()
-
-    rows = []
-    for raw in index.read_text(encoding="utf-8").splitlines():
-        raw = raw.strip()
-        if not raw:
-            continue
-        try:
-            rows.append(json.loads(raw))
-        except json.JSONDecodeError:
-            continue  # tolerate a torn line
-
+    rows = _index_rows(traces_dir)
     n = len(rows)
     if n == 0:
         return _empty_aggregate()

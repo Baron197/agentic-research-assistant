@@ -317,7 +317,9 @@ def main(argv: list[str]) -> int:
                         help="CI gate: exit non-zero if avg citation coverage is below this")
     args = parser.parse_args(argv)
 
-    settings = Settings()
+    # The eval scores the agents' reports; a person's approval is not part of
+    # that, and a run paused for one would have nothing to score yet.
+    settings = Settings(require_approval=False)
     tasks_path = Path(args.tasks) if args.tasks else Path(__file__).parent / "tasks.jsonl"
     out_dir = Path(args.out) if args.out else settings.results_dir
     out_dir.mkdir(parents=True, exist_ok=True)

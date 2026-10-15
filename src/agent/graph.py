@@ -11,6 +11,10 @@ Flow:
 A budget guard runs on the edge out of every node, so exceeding the token budget
 always routes cleanly to the finalizer instead of hanging. The finalizer applies
 the unconditional ``enforce_citations`` guarantee and numbers the sources.
+
+The approval gate either asks an injected ``approval_fn`` or pauses the run with
+LangGraph's ``interrupt()``; a paused run's state waits in an in-memory
+checkpoint until ``runner.resume`` brings a person's decision.
 """
 
 from __future__ import annotations
@@ -18,12 +22,26 @@ from __future__ import annotations
 from functools import partial
 from typing import Annotated, Any, TypedDict
 
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import interrupt
 
 from .agents import critic, planner, researcher, writer
 from .context import AgentContext
 from .guardrails import build_sources, enforce_citations, within_budget
-from .schemas import Budget, Critique, Report, ResearchPlan, Step
+from .schemas import (
+    Budget,
+    Citation,
+    Claim,
+    Critique,
+    Evidence,
+    Report,
+    ReportSection,
+    ResearchPlan,
+    Step,
+    SubQuestion,
+)
 
 
 def _append_steps(left: list[Step] | None, right: list[Step] | None) -> list[Step]:
@@ -56,22 +74,42 @@ class GraphState(TypedDict, total=False):
 def _approval(state: dict[str, Any], ctx: AgentContext) -> dict[str, Any]:
     """Optional human-in-the-loop gate before finalizing.
 
-    Keyless/default mode auto-approves. When ``require_approval`` is set, the
-    injected ``approval_fn`` decides; a production deployment would swap this node
-    for a LangGraph ``interrupt()`` checkpoint (noted in the roadmap).
+    With ``require_approval`` set, an injected ``approval_fn`` decides at once;
+    without one the run pauses here (``interrupt()``) and LangGraph re-runs this
+    node with the decision when ``runner.resume`` continues it.
     """
     if not ctx.settings.require_approval:
         return {}
     with ctx.tracer.span("approval") as sp:
-        approved = ctx.approval_fn(state.get("draft")) if ctx.approval_fn else True
+        if ctx.approval_fn is not None:
+            approved = bool(ctx.approval_fn(state.get("draft")))
+        else:
+            approved = bool(interrupt("approve or reject the draft"))
         sp.input_summary = "human approval requested"
         sp.output_summary = f"approved={approved}"
     return {"approved": approved, "trace": [sp.to_step()]}
 
 
+def assemble_report(question: str, draft: Report | None,
+                    evidence: list[Evidence]) -> tuple[Report, int]:
+    """The report the finalizer releases: citations enforced, sources numbered.
+
+    Also shows a paused run's draft exactly as approving it would release it.
+    Returns the report and how many claims ``enforce_citations`` dropped.
+    """
+    if draft is None:
+        return Report(
+            question=question,
+            summary="No report could be produced (stopped before drafting, "
+            "likely due to the token budget).",
+            partial=True,
+        ), 0
+    cleaned, dropped = enforce_citations(draft, evidence)
+    return cleaned.model_copy(update={"sources": build_sources(cleaned, evidence)}), dropped
+
+
 def _finalizer(state: dict[str, Any], ctx: AgentContext) -> dict[str, Any]:
     """Assemble the final report: enforce citations, number sources, set status."""
-    question = state["question"]
     draft = state.get("draft")
     evidence = state["evidence"]
     approved = state.get("approved", True)
@@ -79,21 +117,10 @@ def _finalizer(state: dict[str, Any], ctx: AgentContext) -> dict[str, Any]:
     unresolved = bool(state.get("unresolved", False))
 
     with ctx.tracer.span("finalizer") as sp:
-        if draft is None:
-            report = Report(
-                question=question,
-                summary="No report could be produced (stopped before drafting, "
-                "likely due to the token budget).",
-                partial=True,
-            )
-            dropped = 0
-        else:
-            cleaned, dropped = enforce_citations(draft, evidence)
-            sources = build_sources(cleaned, evidence)
-            report = cleaned.model_copy(update={"sources": sources})
+        report, dropped = assemble_report(state["question"], draft, evidence)
 
         if not approved:
-            status, partial = "awaiting_approval", True
+            status, partial = "rejected", True
         elif budget_exceeded or unresolved or draft is None:
             status, partial = "partial", True
         else:
@@ -111,8 +138,27 @@ def _finalizer(state: dict[str, Any], ctx: AgentContext) -> dict[str, Any]:
     }
 
 
-def build_graph(ctx: AgentContext):
-    """Compile the StateGraph with all nodes and conditional (budget-aware) edges."""
+# Every schema type the graph state holds. A checkpoint stores the state as
+# msgpack, and LangGraph only rebuilds the classes it is told to trust.
+_STATE_TYPES = [(cls.__module__, cls.__name__) for cls in (
+    Budget, Citation, Claim, Critique, Evidence, Report, ReportSection,
+    ResearchPlan, Step, SubQuestion)]
+
+
+def pause_checkpointer() -> InMemorySaver:
+    """Where a run paused for approval keeps its state until the decision comes."""
+    try:
+        serde = JsonPlusSerializer(allowed_msgpack_modules=_STATE_TYPES)
+    except TypeError:  # langgraph-checkpoint before the allowlist trusts every type
+        serde = JsonPlusSerializer()
+    return InMemorySaver(serde=serde)
+
+
+def build_graph(ctx: AgentContext, checkpointer: InMemorySaver | None = None):
+    """Compile the StateGraph with all nodes and conditional (budget-aware) edges.
+
+    ``checkpointer`` is needed only by a run that can pause for approval.
+    """
     settings = ctx.settings
 
     def over_budget(state: dict[str, Any]) -> bool:
@@ -141,15 +187,20 @@ def build_graph(ctx: AgentContext):
         return "approval" if settings.require_approval else "finalizer"
 
     def node(name: str, fn: Any):
-        """The node, reporting its start and end to the progress bar if one listens."""
+        """The node, reporting its start and end to the progress bar if one listens.
+
+        Checked on every call, not once here: a run resumed after a pause has no
+        progress bar any more, though its graph was built with one.
+        """
         bound = partial(fn, ctx=ctx)
-        if ctx.progress is None:
-            return bound
 
         def reporting(state: dict[str, Any]) -> dict[str, Any]:
-            ctx.progress.node_started(name, state)
+            progress = ctx.progress
+            if progress is None:
+                return bound(state)
+            progress.node_started(name, state)
             update = bound(state)
-            ctx.progress.node_finished(name, state, update)
+            progress.node_finished(name, state, update)
             return update
 
         return reporting
@@ -181,4 +232,4 @@ def build_graph(ctx: AgentContext):
     )
     g.add_edge("approval", "finalizer")
     g.add_edge("finalizer", END)
-    return g.compile()
+    return g.compile(checkpointer=checkpointer)

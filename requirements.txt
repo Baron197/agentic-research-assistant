@@ -4,7 +4,8 @@
 # ---------------------------------------------------------------------------
 # Major-version caps (langgraph, streamlit): the live demo reinstalls the newest
 # releases on every deploy, so a breaking 2.0 must not slip in unreviewed.
-langgraph>=0.2,<2
+# langgraph 1.0 is the floor: the approval pause uses interrupt() + Command(resume=).
+langgraph>=1.0,<2
 langchain-core>=0.3
 pydantic>=2.5
 pydantic-settings>=2.1

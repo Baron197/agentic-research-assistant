@@ -77,6 +77,7 @@ STATUS_ACCENT = {
     "complete": "var(--ok)",
     "partial": "var(--warn)",
     "awaiting_approval": "var(--info)",
+    "rejected": "var(--bad)",
     "error": "var(--bad)",
 }
 # Graph labels sit on the page background, which CSS variables can't reach
@@ -100,12 +101,14 @@ ss.setdefault("max_iter", 2)
 ss.setdefault("budget", 60_000)
 ss.setdefault("critic", True)
 ss.setdefault("approval", False)
+
 # Streamlit discards a widget's value when the next page doesn't render that same
 # widget, so switching Research -> Critic A/B emptied the question and reset the
 # run settings. Re-assigning the keys on every run keeps them as plain session
 # state that survives page switches (Streamlit's documented pattern).
 for _key in ("q", "max_iter", "budget", "critic", "approval"):
     ss[_key] = ss[_key]
+
 
 
 def _theme_css(dark: bool) -> str:
@@ -133,6 +136,10 @@ def _theme_css(dark: bool) -> str:
       [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p,
       [data-testid="stCaptionContainer"] strong, [data-testid="stSliderTickBar"] * {
         color:var(--muted) !important; opacity:1 !important; }
+      /* Blockquotes (a report's "partial" note) are drawn at that 60% too, with a
+         bar in the light theme's grey that vanishes on the dark page. */
+      .stApp [data-testid="stMarkdownContainer"] blockquote { opacity:1 !important;
+        border-left-color:var(--muted) !important; }
       .stApp code { color:var(--code-fg); }
       /* The "?" help icons: stroked in the light theme's grey at 60% opacity. */
       [data-testid="stTooltipIcon"] svg { stroke:var(--muted) !important; }
@@ -269,11 +276,17 @@ def _embed() -> dict[str, Any] | None:
         from agent.observability import aggregate, load_run, recent_runs
         from agent.runner import render_report_markdown, run
         from agent.tools.search import list_corpus
+        try:  # an older agent package (see api_health) never pauses, so needs neither
+            from agent.approvals import is_paused
+            from agent.runner import resume
+        except ImportError:
+            is_paused = resume = None
         return {"version": __version__, "get_settings": get_settings,
                 "cap_request": cap_request,
                 "support_rate": support_rate, "aggregate": aggregate,
                 "load_run": load_run, "recent_runs": recent_runs,
                 "render_markdown": render_report_markdown, "run": run,
+                "resume": resume, "is_paused": is_paused,
                 "list_corpus": list_corpus}
     except Exception:  # noqa: BLE001
         return None
@@ -392,6 +405,8 @@ def _embedded_get(path: str) -> Any | None:
         data["markdown"] = e["render_markdown"](res.report)
         data["citation_coverage"] = round(res.citation_coverage, 4)
         data["support_rate"] = round(e["support_rate"](res.report, res.evidence), 4)
+        data["approval_pending"] = (res.status == "awaiting_approval"
+                                    and e["is_paused"] is not None and e["is_paused"](res.run_id))
         return data
     return None
 
@@ -476,6 +491,11 @@ def _embedded_research(payload: dict[str, Any], on_progress: ProgressFn | None =
         res = run(payload.get("question", ""), settings=settings, **overrides)
     except Exception as exc:  # noqa: BLE001
         return None, f"Research failed: {exc}"
+    return _embedded_response(e, res), None
+
+
+def _embedded_response(e: dict[str, Any], res: Any) -> dict[str, Any]:
+    """A finished (or paused) run, shaped like the API's POST /research body."""
     return {
         "run_id": res.run_id, "status": res.status, "question": res.question,
         "report": res.report.model_dump(), "markdown": e["render_markdown"](res.report),
@@ -484,7 +504,36 @@ def _embedded_research(payload: dict[str, Any], on_progress: ProgressFn | None =
         "removed_claims": res.removed_claims,
         "citation_coverage": round(res.citation_coverage, 4),
         "support_rate": round(e["support_rate"](res.report, res.evidence), 4),
-    }, None
+    }
+
+
+NOT_WAITING = ("This run is no longer waiting for approval: it was already decided, or the "
+               "server no longer holds it (paused runs wait in memory for up to a day, and a "
+               "restart forgets them). Run the question again.")
+
+
+def decide(run_id: str, approved: bool) -> Outcome:
+    """Approve or reject a run paused for approval; returns the finished run."""
+    if _backend() == "embedded":
+        e = _embed()
+        if e is None or e["resume"] is None:
+            return None, NOT_WAITING
+        try:
+            return _embedded_response(e, e["resume"](run_id, approved)), None
+        except LookupError:  # agent.approvals.NotAwaitingApproval
+            return None, NOT_WAITING
+        except Exception as exc:  # noqa: BLE001
+            return None, f"The decision failed: {exc}"
+    try:
+        resp = httpx.post(f"{API_URL}/runs/{run_id}/approval", json={"approved": approved},
+                          timeout=REQUEST_TIMEOUT)
+    except Exception as exc:  # noqa: BLE001
+        return None, f"Request failed: {exc}"
+    if resp.status_code == 404:
+        return None, NOT_WAITING
+    if resp.status_code != 200:
+        return None, _api_error(resp)
+    return resp.json(), None
 
 
 # --- runs ----------------------------------------------------------------------
@@ -678,8 +727,8 @@ def agent_graph_dot(result: dict[str, Any], trace: list[dict[str, Any]],
         if not approval_ran:
             d.append(edge("writer", "approval", False))
             d.append(edge("approval", "finalizer", False))
-    if approval_ran:
-        d.append(edge("approval", "finalizer", True))
+    if approval_ran:  # a run waiting for approval has not reached the finalizer yet
+        d.append(edge("approval", "finalizer", "finalizer" in executed))
     d.append(edge("finalizer", "END", "finalizer" in executed))
     d.append("}")
     return "\n".join(d)
@@ -741,7 +790,8 @@ def sidebar_health(health: dict[str, Any] | None = None) -> None:
                       f"{backend} · v{health.get('version', '?')}"))
 
 
-def settings_sidebar(show_critic: bool = True) -> dict[str, Any] | None:
+def settings_sidebar(show_critic: bool = True,
+                     show_approval: bool = True) -> dict[str, Any] | None:
     """The run-settings sidebar; returns the backend's health for mode-aware text."""
     health = api_health()
     m = ui_mode(health)
@@ -778,17 +828,52 @@ def settings_sidebar(show_critic: bool = True) -> dict[str, Any] | None:
                             "ungathered sources are still removed." if m["real"] else
                             "OFF = the critic-OFF arm of the A/B: the keyless writer's "
                             "planted uncited claim survives, so coverage drops."))
-        st.checkbox("Require human approval", key="approval",
-                    help="This app has no interactive approver, so runs auto-approve (an "
-                         "approval step still appears in the trace). A real deny is only "
-                         "possible via the Python API's approval_fn.")
+        if show_approval:
+            st.checkbox("Require human approval", key="approval",
+                        help="Pause each run before its final step: you read the draft, "
+                             "then approve it (the report is released) or reject it.")
         st.divider()
     sidebar_health(health)
     return health
 
 
+def approval_panel(run_id: str, pending: bool | None) -> None:
+    """Approve / Reject for a run paused at the human-approval gate.
+
+    ``pending`` is the backend's word on whether it still holds the paused run
+    (None: it didn't say, so offer the buttons and let the decision find out).
+    """
+    if pending is False:  # e.g. reopened from History after a server restart
+        st.warning(NOT_WAITING)
+        return
+    st.info(md("**Waiting for your approval.** The run stopped before its final step. Read "
+               "the draft below, then approve it to release the report, or reject it."))
+    approve, reject = st.columns(2)
+    decision = None
+    # Handled here, not in on_click callbacks: see page_research.
+    if approve.button("Approve", key=f"approve_{run_id}", type="primary",
+                      icon=":material/check:", use_container_width=True):
+        decision = True
+    if reject.button("Reject", key=f"reject_{run_id}", icon=":material/close:",
+                     use_container_width=True):
+        decision = False
+    if decision is None:
+        return
+    data, err = decide(run_id, decision)
+    # Reload the run either way: now decided, or still paused but no longer held.
+    detail = api_get(f"/runs/{run_id}")
+    if data or detail:
+        ss.result, ss.detail = data or detail, detail
+    # A run left paused gets the notice in place of its buttons; an error would repeat it.
+    still_paused = (detail or {}).get("status") == "awaiting_approval"
+    ss.error = None if err == NOT_WAITING and still_paused else err
+    st.rerun()
+
+
 def render_result(r: dict[str, Any], detail: dict[str, Any]) -> None:
     """The metrics band + tabbed report/evidence/corpus/timeline/graph/raw view."""
+    if r["status"] == "awaiting_approval":
+        approval_panel(r["run_id"], detail.get("approval_pending"))
     report = r["report"]
     cov = float(r["citation_coverage"])
     band = "".join([
@@ -1023,7 +1108,7 @@ def page_research() -> None:
 
 
 def page_compare() -> None:
-    m = ui_mode(settings_sidebar(show_critic=False))
+    m = ui_mode(settings_sidebar(show_critic=False, show_approval=False))
     if m["real"]:
         hero("Critic A/B",
              "Run the same question with the critic <b>on</b> and <b>off</b>, side by side. "
@@ -1038,7 +1123,7 @@ def page_compare() -> None:
     st.text_input("Research question", key="q")
     if st.button("Run A/B comparison", type="primary", use_container_width=True,
                  disabled="job" in ss) and "job" not in ss:  # not on_click: see page_research
-        base = _base_payload()
+        base = {**_base_payload(), "require_approval": False}  # a measurement, not a release
         _start_job("compare", [{**base, "enable_critic": True}, {**base, "enable_critic": False}],
                    ["Critic ON: ", "Critic OFF: "])
         st.rerun()
@@ -1269,8 +1354,9 @@ def page_guide() -> None:
                 "| **Enable verifying critic** | OFF skips the claim check, so unsupported "
                 "claims stay in the report; in real mode it also saves the critic's model "
                 "calls |\n"
-                "| **Require human approval** | adds an approval step; this app has no "
-                "interactive approver, so it auto-approves |\n\n"
+                "| **Require human approval** | pauses each run before its final step: you "
+                "read the draft, then **Approve** it (the report is released) or **Reject** "
+                "it. Not used on the Critic A/B page |\n\n"
                 + ("In real mode the server's own `TOKEN_BUDGET` and `MAX_ITERATIONS` are the "
                    "ceiling for the first two.\n\n" if m["real"] else "")
                 + "### The pages\n"
@@ -1394,7 +1480,8 @@ def page_guide() -> None:
             "| Field | Meaning |\n|---|---|\n"
             "| **Status** | `complete` · `partial` (it hit the token budget, or the critic "
             "still wanted a rewrite when the iterations ran out — see **FAQ**) · "
-            "`awaiting_approval` |\n"
+            "`awaiting_approval` (paused for your approval) · `rejected` (you rejected the "
+            "draft) |\n"
             "| **Iterations** | how many times the critic sent the draft back to be "
             "rewritten |\n"
             "| **Tool calls** | `search` + `fetch` calls made while gathering evidence |\n"
@@ -1432,7 +1519,8 @@ def page_guide() -> None:
             "| writer | a draft of the report |\n"
             "| critic | the check; `verdict=revise` (highlighted) asks for a rewrite, which "
             "happens if iterations and budget are left |\n"
-            "| approval | only when *Require human approval* is on |\n"
+            "| approval | only when *Require human approval* is on: `paused` while it waits "
+            "for you, then `approved=True` or `approved=False` |\n"
             "| finalizer | the citation guard, source numbering, and the status |\n\n"
             "### The six result tabs\n"
             "- **Report** — the cited answer, any claims the critic removed, and Markdown / "
@@ -1543,6 +1631,8 @@ def page_guide() -> None:
             "as `partial` |\n"
             "| **Partial** | the run stopped early (budget), or the critic still wanted a "
             "rewrite when the iterations ran out |\n"
+            "| **Human approval** | an optional gate before the final step: the run pauses "
+            "(LangGraph `interrupt()`) until a person approves or rejects the draft |\n"
             "| **The guarantee** | `enforce_citations` strips every citation to a source "
             "that wasn't gathered and drops any claim whose citations were all invalid — "
             "fabricated sources are *structurally impossible* |\n"
@@ -1587,7 +1677,12 @@ def page_guide() -> None:
                "steps in the timeline, and try a more specific question.\n\n" if m["web"] else
                "Nothing in the documents matched the question: that is abstention, not an "
                "error. Ask about a topic the documents cover.\n\n")
-            + "**Why is some evidence marked \"not cited\"?**  \n"
+            + "**I turned on human approval. Where do I approve?**  \n"
+            "Above the draft: the run stops before its last step and shows **Approve** and "
+            "**Reject**. A paused run reopened from **History** has them too. Paused runs "
+            "wait in the server's memory, so after a restart (or a day) they can no longer "
+            "be decided: run the question again.\n\n"
+            "**Why is some evidence marked \"not cited\"?**  \n"
             "The writer only cites evidence that supports a claim. A passage that doesn't "
             "is left out rather than forced into the report.\n\n"
             "**What do `403 Forbidden`, `no readable article text` and `video page` mean?**  \n"

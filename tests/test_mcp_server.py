@@ -90,6 +90,13 @@ def test_depth_is_capped_for_direct_callers(settings):
         mcp_server.research_report(QUESTION, depth=mcp_server.MAX_DEPTH + 1, settings=settings)
 
 
+def test_a_server_that_requires_approval_refuses_rather_than_skip_it(settings):
+    # Nobody on an MCP call can approve, so releasing the report would skip the gate.
+    with pytest.raises(ToolError, match="REQUIRE_APPROVAL"):
+        mcp_server.research_report(
+            QUESTION, settings=settings.model_copy(update={"require_approval": True}))
+
+
 def test_nothing_is_written_to_stdout(settings, capsys):
     # stdio transport carries JSON-RPC on stdout; a stray print would corrupt
     # every message on the wire. This is the regression guard for that.

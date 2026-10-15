@@ -218,6 +218,12 @@ def research_report(
     injected settings without going through the protocol layer.
     """
     effective, _ = resolve_settings(settings)
+    if effective.require_approval:
+        # The report goes to the calling model, and nobody here can approve it;
+        # releasing it anyway would quietly skip the gate the operator asked for.
+        raise ToolError("this server requires a person to approve each report "
+                        "(REQUIRE_APPROVAL=true), which an MCP tool call cannot ask for: "
+                        "use the app or the API, or set REQUIRE_APPROVAL=false for this server")
     overrides: dict[str, Any] = {}
     if depth is not None:
         if not 1 <= depth <= MAX_DEPTH:

@@ -72,6 +72,30 @@ def test_research_stream_reports_failures(client, monkeypatch):
     assert client.post("/research/stream", json={"question": "      "}).status_code == 422
 
 
+def test_a_paused_run_is_approved_over_the_api(client):
+    events = _stream(client, {"question": "What is reranking?", "require_approval": True})
+    data = events[-1]["data"]
+    assert data["status"] == "awaiting_approval" and data["report"]["sources"]
+    assert events[-2] == {"type": "progress", "pct": 99, "label": "Waiting for approval"}
+    run_id = data["run_id"]
+    assert client.get(f"/runs/{run_id}").json()["approval_pending"] is True
+
+    decided = client.post(f"/runs/{run_id}/approval", json={"approved": True})
+    assert decided.status_code == 200 and decided.json()["status"] == "complete"
+    detail = client.get(f"/runs/{run_id}").json()
+    assert detail["status"] == "complete" and detail["approval_pending"] is False
+    assert client.post(f"/runs/{run_id}/approval", json={"approved": False}).status_code == 404
+
+
+def test_approval_refuses_what_it_cannot_decide(client):
+    assert client.post("/runs/never-paused/approval", json={"approved": True}).status_code == 404
+    assert client.post("/runs/name.with.dots/approval", json={"approved": True}).status_code == 404
+    run_id = client.post("/research", json={"question": "What is reranking?",
+                                            "require_approval": True}).json()["run_id"]
+    # A decision must be a JSON boolean, not something that looks like one.
+    assert client.post(f"/runs/{run_id}/approval", json={"approved": "yes"}).status_code == 422
+
+
 def test_research_rejects_short_question(client):
     assert client.post("/research", json={"question": "hi"}).status_code == 422
 

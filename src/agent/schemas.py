@@ -15,7 +15,9 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 Verdict = Literal["accept", "revise"]
-RunStatus = Literal["complete", "partial", "awaiting_approval", "error"]
+# awaiting_approval: paused at the human-approval gate until a person decides;
+# rejected: the person said no, so the report was not released.
+RunStatus = Literal["complete", "partial", "awaiting_approval", "rejected", "error"]
 
 
 def _utcnow_iso() -> str:
