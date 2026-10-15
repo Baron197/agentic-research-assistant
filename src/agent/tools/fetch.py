@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import html
 import re
+from ipaddress import IPv4Address, IPv6Address, ip_address
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 from urllib.parse import urlparse
@@ -101,12 +102,81 @@ class FakeFetch:
         return read_doc_text(path)
 
 
+def _is_public(addr: IPv4Address | IPv6Address) -> bool:
+    """A globally routable unicast address: not private, loopback, link-local
+    (169.254.169.254 is the cloud metadata service), shared (100.64.0.0/10),
+    reserved, multicast or unspecified."""
+    if isinstance(addr, IPv6Address) and addr.ipv4_mapped is not None:
+        addr = addr.ipv4_mapped  # ::ffff:a.b.c.d reaches a.b.c.d
+    site_local = isinstance(addr, IPv6Address) and addr.is_site_local
+    return addr.is_global and not (addr.is_reserved or addr.is_multicast or site_local)
+
+
+def _public_addresses(host: str) -> list[str]:
+    """Resolve ``host`` once; every address must be public, or the fetch is refused."""
+    import socket
+
+    infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+    addresses = list(dict.fromkeys(str(info[4][0]) for info in infos))
+    if not addresses or not all(_is_public(ip_address(a)) for a in addresses):
+        raise ValueError(f"refusing to fetch {host!r}: it resolves to a private/internal address")
+    return addresses
+
+
+class _PinnedTransport:
+    """An httpx transport that connects only to an address that passed the check.
+
+    Checking a name and then letting the connection resolve it again leaves a gap:
+    a hostile DNS server can answer the check with a public address and the
+    connection with a private one (DNS rebinding). Here each request is resolved
+    once, checked, and sent to that IP, with the name kept where it belongs: the
+    Host header, and for https the TLS SNI and certificate check. httpx sets the
+    response's request back to the original, so cookies and redirects see the name.
+    """
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+
+    def handle_request(self, request: Any) -> Any:
+        import httpx  # lazy
+
+        host = request.url.raw_host.decode("ascii")
+        *others, last = _public_addresses(host)
+        for ip in others:  # in order, as a plain connect would try them
+            try:
+                return self._inner.handle_request(self._pinned(request, host, ip))
+            except (httpx.ConnectError, httpx.ConnectTimeout):
+                continue
+        return self._inner.handle_request(self._pinned(request, host, last))
+
+    @staticmethod
+    def _pinned(request: Any, host: str, ip: str) -> Any:
+        """``request`` sent to ``ip``, still naming ``host`` (Host header, SNI)."""
+        import httpx  # lazy
+
+        return httpx.Request(
+            request.method, request.url.copy_with(host=f"[{ip}]" if ":" in ip else ip),
+            headers=request.headers, stream=request.stream,
+            extensions={**request.extensions, "sni_hostname": host})
+
+    def close(self) -> None:
+        self._inner.close()
+
+    def __enter__(self) -> _PinnedTransport:
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
+
+
 class HttpFetch:
     """Real, bounded HTTP fetch that returns a page's article text.
 
     Guardrails: only ``http(s)`` URLs; redirects are followed manually so every
-    hop is re-validated; hosts that resolve to private/loopback/link-local
-    addresses are refused (SSRF); and the body is *streamed* and cut off at
+    hop is re-validated; each hop's host is resolved once, refused if any address
+    is private/loopback/link-local/shared/reserved (SSRF), and connected to at the
+    address that was checked (``_PinnedTransport``), so DNS cannot switch it to an
+    internal one in between; and the body is *streamed* and cut off at
     ``max_bytes`` actual bytes, so a huge page cannot exhaust memory.
     """
 
@@ -117,27 +187,26 @@ class HttpFetch:
     # a bare product name with 403 (its robot policy asks for contact details).
     _USER_AGENT = "agentic-research-assistant/0.1 (+https://github.com/Baron197/agentic-research-assistant)"
 
-    def __init__(self, timeout: float = 10.0, max_bytes: int = _MAX_BYTES) -> None:
+    def __init__(self, timeout: float = 10.0, max_bytes: int = _MAX_BYTES,
+                 transport: Any = None) -> None:
         self.timeout = timeout
         self.max_bytes = max_bytes
+        # What sends the pinned request: httpx's own transport by default; tests
+        # pass an httpx.MockTransport so no request leaves the machine.
+        self.transport = transport
 
     @staticmethod
     def _check_url(url: str) -> None:
-        """Reject non-http(s) schemes and hosts on private/internal networks."""
-        import socket
-        from ipaddress import ip_address
-        from urllib.parse import urlparse
+        """Reject non-http(s) schemes and URLs without a host.
 
+        The host's addresses are checked where the connection is made
+        (``_PinnedTransport``), so the address checked is the one connected to.
+        """
         parsed = urlparse(url)
         if parsed.scheme not in ("http", "https"):
             raise ValueError(f"unsupported URL scheme in {url!r} (http/https only)")
-        host = parsed.hostname or ""
-        if not host:
+        if not parsed.hostname:
             raise ValueError(f"URL has no host: {url!r}")
-        for info in socket.getaddrinfo(host, None):
-            addr = ip_address(info[4][0])
-            if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
-                raise ValueError(f"refusing to fetch private/internal address for {url!r}")
 
     @staticmethod
     def _check_has_text(url: str) -> None:
@@ -146,12 +215,19 @@ class HttpFetch:
         if any(host == h or host.endswith("." + h) for h in _NO_TEXT_HOSTS):
             raise NoReadableText(f"video page, no article text: {url!r}")
 
-    def fetch(self, url: str) -> str:  # pragma: no cover - real network path
+    def fetch(self, url: str) -> str:
         import httpx  # lazy
 
         self._check_has_text(url)
         raw = ""
-        with httpx.Client(timeout=self.timeout, follow_redirects=False) as client:
+        # No keep-alive: the pool keys connections by IP, so a kept one could carry
+        # another host's request under the first host's certificate. And
+        # trust_env=False: a proxy from the environment gets a transport of its
+        # own, which would skip the address check.
+        inner = self.transport or httpx.HTTPTransport(
+            limits=httpx.Limits(max_keepalive_connections=0))
+        with httpx.Client(timeout=self.timeout, follow_redirects=False, trust_env=False,
+                          transport=_PinnedTransport(inner)) as client:
             for _ in range(self._MAX_REDIRECTS + 1):
                 self._check_url(url)
                 request = client.build_request("GET", url, headers={"User-Agent": self._USER_AGENT})

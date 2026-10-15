@@ -237,3 +237,151 @@ def test_http_fetch_identifies_itself_with_a_contact_url():
     from agent.tools.fetch import HttpFetch
 
     assert "+https://github.com/" in HttpFetch._USER_AGENT
+
+
+# --- HttpFetch SSRF: each hop is resolved once, checked, and connected to at that
+# address (no DNS rebinding). Name resolution is faked and httpx.MockTransport
+# stands in for the network, so no request leaves the machine.
+_ARTICLE_PAGE = "<html><body><p>" + _ARTICLE * 2 + "</p></body></html>"
+
+
+def _fake_dns(monkeypatch, answers):
+    """Make ``socket.getaddrinfo`` answer from ``answers``: host -> a list of
+    address lists, one per lookup (the last repeats). Returns the lookup log."""
+    import socket
+
+    lookups: list[str] = []
+
+    def getaddrinfo(host, port, *args, **kwargs):
+        n = sum(1 for h in lookups if h == host)
+        lookups.append(host)
+        rounds = answers[host]
+        return [(socket.AF_INET6 if ":" in ip else socket.AF_INET, socket.SOCK_STREAM, 6, "",
+                 (ip, 0)) for ip in rounds[min(n, len(rounds) - 1)]]
+
+    monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
+    return lookups
+
+
+def _recording_fetch(monkeypatch, respond=None):
+    """An HttpFetch whose transport records each request instead of sending it."""
+    import sys
+
+    import httpx
+
+    from agent.tools.fetch import HttpFetch
+
+    monkeypatch.setitem(sys.modules, "trafilatura", None)  # the same text extraction everywhere
+    sent: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append(request)
+        reply = respond(request) if respond else None
+        return reply or httpx.Response(200, html=_ARTICLE_PAGE)
+
+    return HttpFetch(transport=httpx.MockTransport(handler)), sent
+
+
+def test_http_fetch_connects_to_the_address_it_checked(monkeypatch):
+    # DNS rebinding: the first answer is public, every later one is the cloud
+    # metadata service. The fetch must connect to the checked address, not ask again.
+    lookups = _fake_dns(monkeypatch, {"rebind.example": [["93.184.216.34"], ["169.254.169.254"]]})
+    fetch, sent = _recording_fetch(monkeypatch)
+
+    assert "Cosine similarity" in fetch.fetch("https://rebind.example/article")
+
+    assert lookups == ["rebind.example"]
+    [request] = sent
+    assert request.url.host == "93.184.216.34"  # pinned to the checked address
+    # ...while the server, TLS SNI and the certificate check still see the name.
+    assert request.headers["host"] == "rebind.example"
+    assert request.extensions["sni_hostname"] == "rebind.example"
+    assert request.headers["user-agent"].startswith("agentic-research-assistant/")
+
+
+def test_http_fetch_rechecks_the_name_on_every_hop(monkeypatch):
+    # A redirect back to the same host is resolved again, and this time the answer
+    # is private: refused before anything is sent to it.
+    import httpx
+
+    lookups = _fake_dns(monkeypatch, {"rebind.example": [["93.184.216.34"], ["169.254.169.254"]]})
+
+    def respond(request):
+        return httpx.Response(302, headers={"Location": "/next"})
+
+    fetch, sent = _recording_fetch(monkeypatch, respond)
+
+    with pytest.raises(ValueError, match="private/internal"):
+        fetch.fetch("http://rebind.example/start")
+    assert lookups == ["rebind.example", "rebind.example"]
+    assert [r.url.path for r in sent] == ["/start"]
+
+
+def test_http_fetch_refuses_a_redirect_to_an_internal_host(monkeypatch):
+    import httpx
+
+    _fake_dns(monkeypatch, {"good.example": [["93.184.216.34"]],
+                            "metadata.example": [["169.254.169.254"]]})
+
+    def respond(request):
+        return httpx.Response(302, headers={"Location": "http://metadata.example/latest/meta-data/"})
+
+    fetch, sent = _recording_fetch(monkeypatch, respond)
+
+    with pytest.raises(ValueError, match="private/internal"):
+        fetch.fetch("https://good.example/")
+    assert len(sent) == 1  # nothing reached the internal address
+
+
+@pytest.mark.parametrize("addresses", [
+    ["127.0.0.1"], ["10.0.0.5"], ["172.16.0.1"], ["192.168.1.1"], ["169.254.169.254"],
+    ["100.64.0.1"],  # shared address space (carrier-grade NAT), not the internet
+    ["0.0.0.0"], ["224.0.0.1"], ["240.0.0.1"],
+    ["::1"], ["fe80::1"], ["fc00::1"], ["fec0::1"], ["::ffff:169.254.169.254"],
+    ["93.184.216.34", "10.0.0.5"],  # one internal answer is enough to refuse
+])
+def test_http_fetch_refuses_hosts_resolving_to_internal_addresses(monkeypatch, addresses):
+    _fake_dns(monkeypatch, {"internal.example": [addresses]})
+    fetch, sent = _recording_fetch(monkeypatch)
+
+    with pytest.raises(ValueError, match="private/internal"):
+        fetch.fetch("http://internal.example/")
+    assert sent == []
+
+
+@pytest.mark.parametrize("failure", ["ConnectError", "ConnectTimeout"])
+def test_http_fetch_pins_ipv6_and_tries_the_next_address(monkeypatch, failure):
+    # Like a plain connect, an address that refuses or times out falls through to
+    # the next checked one.
+    import httpx
+
+    _fake_dns(monkeypatch, {"dual.example": [["2606:2800:220:1::1", "93.184.216.34"]]})
+
+    def respond(request):
+        if request.url.host == "2606:2800:220:1::1":
+            raise getattr(httpx, failure)("no IPv6 route")
+        return None
+
+    fetch, sent = _recording_fetch(monkeypatch, respond)
+    fetch.fetch("https://dual.example/")
+    assert [str(r.url) for r in sent] == ["https://[2606:2800:220:1::1]/",
+                                          "https://93.184.216.34/"]
+
+
+def test_http_fetch_ignores_proxy_settings_from_the_environment(monkeypatch):
+    # A proxy gets a transport of its own in httpx, which would skip the check.
+    _fake_dns(monkeypatch, {"good.example": [["93.184.216.34"]]})
+    for var in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
+        monkeypatch.setenv(var, "http://127.0.0.1:9")
+    fetch, sent = _recording_fetch(monkeypatch)
+
+    fetch.fetch("https://good.example/")
+    assert [r.url.host for r in sent] == ["93.184.216.34"]
+
+
+def test_http_fetch_refuses_other_schemes():
+    from agent.tools.fetch import HttpFetch
+
+    for url in ("file:///etc/passwd", "ftp://example.com/x", "gopher://example.com/"):
+        with pytest.raises(ValueError, match="unsupported URL scheme"):
+            HttpFetch().fetch(url)

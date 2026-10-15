@@ -5,7 +5,7 @@
 [![Live demo](https://img.shields.io/badge/Live%20demo-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://agentic-research-assistant-ra3rebpqgkqvyyw5wryrma.streamlit.app/)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
 [![CI](https://github.com/Baron197/agentic-research-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/Baron197/agentic-research-assistant/actions/workflows/ci.yml)
-[![tests](https://img.shields.io/badge/tests-143%20passing-brightgreen.svg)](#testing--ci)
+[![tests](https://img.shields.io/badge/tests-165%20passing-brightgreen.svg)](#testing--ci)
 [![Lint: ruff](https://img.shields.io/badge/lint-ruff-46a2f1.svg)](https://github.com/astral-sh/ruff)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Keyless](https://img.shields.io/badge/runs-keyless%20%240.00-brightgreen.svg)](#quickstart-keyless)
@@ -29,7 +29,7 @@
 - **Evidence picked by meaning in real mode** — each fetched page is cut into 3-sentence passages; a word-overlap shortlist feeds an embedding rerank (`text-embedding-3-small`) against the sub-question, the usual hybrid-retrieval pattern. On Wikipedia's *Word embedding* page this picks the actual definition, where word overlap picked a sentence about game transcripts. Keyless runs keep word overlap, so they stay offline and deterministic.
 - **A no-fabricated-sources guarantee** — `enforce_citations` strips every citation to an ungathered id and drops any claim left with no valid support; proven by a dedicated test.
 - **Guardrails** — schema-validated structured output (validate-and-retry), a hard `max_iterations` cap, and a token/cost budget that ends a run cleanly as `partial`.
-- **Web pages treated as hostile input** — the model has no tools and answers in checked JSON, so a page can at most change a report's text, and that text is escaped wherever it is shown: an image or link planted in a page renders as text in the UI, the download and the MCP output (no tracking pixel loads in a reader's browser, and no link hides where it goes: at most a bare web address still links to itself).
+- **Web pages treated as hostile input** — the model has no tools and answers in checked JSON, so a page can at most change a report's text, and that text is escaped wherever it is shown: an image or link planted in a page renders as text in the UI, the download and the MCP output (no tracking pixel loads in a reader's browser, and no link hides where it goes: at most a bare web address still links to itself). The fetcher refuses private and internal addresses on every redirect hop and connects only to the address it checked, so DNS rebinding cannot reach the cloud metadata service.
 - **Human-in-the-loop approval** — with `require_approval` on, a run **pauses** before its final step (LangGraph `interrupt()` with a checkpoint) and shows the draft exactly as it would be released; a person approves or rejects it in the UI or through `POST /runs/{id}/approval`, and the run resumes from where it stopped.
 - **Evaluation wired into CI as a gate** — real metrics (no fabricated numbers), a critic ON/OFF A/B, and a `--min-citation-coverage` gate that fails the build on regression. The A/B was also re-run with a real model, where the critic's effect measured ~0 — reported as-is ([see why](#critic-ab--and-what-it-does-not-prove)).
 - **First-class observability** — every run records an ordered trace of steps with tokens, USD cost (list price, input and output priced separately from the provider's own usage counts), and latency; `/metrics` aggregates runs with a nearest-rank p95. While a run works, the UI shows a live progress bar (the current stage, sources read so far, a percentage), streamed from `POST /research/stream`.
@@ -452,7 +452,7 @@ data/corpus/         11 seed docs (the "web" FakeSearch/FakeFetch operate over)
 eval/
   tasks.jsonl        12 golden tasks (incl. 2 out-of-corpus abstention checks)
   run_eval.py        metrics + critic A/B + CI gate
-tests/               deterministic, keyless end-to-end + unit tests (143; 27 need optional extras, which CI installs in a second job)
+tests/               deterministic, keyless end-to-end + unit tests (165; 27 need optional extras, which CI installs in a second job)
 docs/screenshots/    UI screenshots used in this README
 Dockerfile  docker-compose.yml  .dockerignore  Makefile  pyproject.toml  requirements.txt
 .env.example  .gitattributes  .github/workflows/ci.yml
@@ -461,7 +461,7 @@ README.md  ARCHITECTURE.md  DEPLOYMENT.md  REAL_MODE.md  LICENSE
 
 ## Testing & CI
 
-`make test` runs a fast, deterministic, keyless suite of **143 tests** (graph
+`make test` runs a fast, deterministic, keyless suite of **165 tests** (graph
 end-to-end, no-fabricated-sources, the one-revise critic loop + iteration cap,
 tiny-budget → `partial`, the **parallel researcher fan-out** — proving a
 concurrent run is byte-identical to a serial one — the **depth** knob, the
@@ -478,16 +478,18 @@ releases exactly the draft the reviewer read, takes one decision only, survives 
 overrun, keeps paused runs bounded in memory, and is asked about at the CLI), keyless runs
 on a real-mode server (every paid service off, uncapped, recorded as keyless, and averaged
 apart from real runs), untrusted text shown as text (an image or link planted in a page,
-claim or question renders as its characters), and the API incl. the `/runs`, `/runs/{id}/approval`, `/corpus`,
+claim or question renders as its characters), the fetcher's SSRF guard (internal addresses
+refused on every hop, and the connection pinned to the address that was checked, so DNS
+rebinding can't swap one in), and the API incl. the `/runs`, `/runs/{id}/approval`, `/corpus`,
 `/research/stream`, `enable_critic` and 422 paths).
 Twenty-seven of them exercise **optional** extras
 (19 the MCP server — including its schemas, its real-mode cost guard, its refusal to skip a
 required approval, and a stdout-purity check that protects the stdio transport — 6 the DSPy
 backend, 1 PDF-corpus reading, 1 rendering a report to HTML with markdown-it) and do not run
 unless those extras are installed. So a
-default keyless install reports **116 passed, 4 skipped** — the four
+default keyless install reports **138 passed, 4 skipped** — the four
 optional groups skip as whole units — while a machine with the extras present
-runs all **143**, still keyless via fakes / `DummyLM`. CI
+runs all **165**, still keyless via fakes / `DummyLM`. CI
 (`.github/workflows/ci.yml`) runs `ruff check .` → `pytest -q` → the eval gate, and a
 second job installs the optional extras and runs the full suite, so every test runs in CI,
 all keyless with no secrets.
