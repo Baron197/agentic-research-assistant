@@ -27,6 +27,7 @@ import inspect
 import json
 import os
 import queue
+import re
 import threading
 import time
 from collections.abc import Callable
@@ -386,6 +387,32 @@ def show_md(text: str) -> None:
     st.markdown(md(text))
 
 
+# Markdown's markup characters, and what GFM links on its own (a bare URL's "://",
+# "www.", an e-mail's "@"), as in agent.textutil.escape_markdown: the report's text
+# is escaped there, and this UI also runs against an API without the package.
+_MD_SPECIAL = re.compile(r"([\\`*_~\[\]!#<>$])")
+_BARE_LINK = re.compile(r"(?i)(?:(?<=http)|(?<=https)|(?<=ftp)):(?=//)|(?<=www)\.|@")
+
+
+def plain(text: Any) -> str:
+    """Text from outside the app as literal Markdown: one line, markup escaped.
+
+    For page titles, snippets and URLs, claims a model wrote after reading pages,
+    errors that may quote them, and questions other people asked: none of it may
+    load an image (a browser fetches it on sight) or hide a link behind its text.
+    (Streamlit still links a bare URL, showing the address itself.)
+    """
+    escaped = _MD_SPECIAL.sub(r"\\\1", " ".join(str(text).split()))
+    return _BARE_LINK.sub(r"\\\g<0>", escaped)
+
+
+def plain_url(url: str) -> str:
+    """A source URL that links to itself (an autolink holds no markup), else plain text."""
+    if url.lower().startswith(("http://", "https://")) and not re.search(r"[\x00-\x20<>\x7f]", url):
+        return f"<{url}>"
+    return plain(url)
+
+
 def sources_label(m: dict[str, Any]) -> str:
     if m["web"]:
         return "the live web"
@@ -688,7 +715,8 @@ def timeline_html(trace: list[dict[str, Any]]) -> str:
         node = step.get("node", "?")
         icon, color = NODE_STYLE.get(node, ("•", "#888"))
         tool = f" · {step['tool']}" if step.get("tool") else ""
-        summary = html.escape(step.get("output_summary", ""))
+        # One line: a blank line would end the HTML block, and Markdown after it renders.
+        summary = html.escape(" ".join(step.get("output_summary", "").split()))
         revise = "verdict=revise" in summary
         rows.append(
             f'<div class="tl-item{" tl-revise" if revise else ""}" style="border-left-color:{color}">'
@@ -959,7 +987,7 @@ def render_result(r: dict[str, Any], detail: dict[str, Any]) -> None:
                 st.caption("Claims an earlier draft made that the critic found unsupported "
                            "by their cited evidence. None of them are in the report above.")
                 for text in removed:
-                    st.markdown(f"- {text}")
+                    st.markdown(f"- {plain(text)}")
         d1, d2 = st.columns(2)
         d1.download_button(":material/download: Download report (Markdown)", r["markdown"],
                            file_name=f"report_{r['run_id']}.md", mime="text/markdown",
@@ -984,13 +1012,13 @@ def render_result(r: dict[str, Any], detail: dict[str, Any]) -> None:
             for ev in evidence:
                 uses = cited_by.get(ev["id"], [])
                 tag = f"cited by {len(uses)}" if uses else "not cited"
-                with st.expander(f"{ev['id']} · {ev['source_title']}  —  {tag}"):
-                    st.caption(ev["source_url"])
-                    st.write(ev["snippet"])
+                with st.expander(f"{ev['id']} · {plain(ev['source_title'])}  —  {tag}"):
+                    st.caption(plain_url(ev["source_url"]))
+                    st.markdown(plain(ev["snippet"]))
                     if uses:
                         st.markdown("**Cited by:**")
                         for t in uses:
-                            st.markdown(f"- {t}")
+                            st.markdown(f"- {plain(t)}")
 
     with tab_corpus:
         corpus_info = api_get("/corpus")
@@ -1149,7 +1177,7 @@ def page_research() -> None:
         st.rerun()  # redraw with the report and the button enabled again
 
     if ss.error:
-        st.error(ss.error)
+        st.error(plain(ss.error))
     if ss.result:
         render_result(ss.result, ss.detail or {})
     elif m["real"]:
@@ -1199,7 +1227,7 @@ def page_compare() -> None:
                    "critic, plus the model's run-to-run variation.")
 
     if ss.error:
-        st.error(ss.error)
+        st.error(plain(ss.error))
     if ss.compare:
         render_compare(ss.compare)
     elif m["real"]:
@@ -1235,7 +1263,7 @@ def page_history() -> None:
     for it in runs:
         c = st.columns(widths)
         q = (it.get("question") or "(no question)").strip()
-        c[0].write(q[:70] + ("…" if len(q) > 70 else ""))
+        c[0].markdown(plain(q[:70] + ("…" if len(q) > 70 else "")))
         c[1].write(_mode_label(it))
         c[2].write(it.get("status", "?"))
         cov = it.get("citation_coverage")
@@ -1245,7 +1273,7 @@ def page_history() -> None:
                     args=(it.get("run_id"),), use_container_width=True)
 
     if ss.error:
-        st.error(ss.error)
+        st.error(plain(ss.error))
     if ss.result:
         st.divider()
         st.subheader("Selected run")
@@ -1287,7 +1315,7 @@ def page_observability() -> None:
         return
     body = []
     for it in runs:
-        q = html.escape((it.get("question") or "(no question)")[:60])
+        q = html.escape(" ".join((it.get("question") or "(no question)")[:60].split()))
         cov = it.get("citation_coverage")
         cov_s = f"{cov:.0%}" if isinstance(cov, (int, float)) else "—"
         body.append(

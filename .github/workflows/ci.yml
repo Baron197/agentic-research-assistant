@@ -31,7 +31,8 @@ jobs:
 
   extras:
     # The MCP server, DSPy backend and PDF-corpus tests skip on the plain install
-    # above; this job adds those optional packages so CI runs every test.
+    # above, as does rendering a report to HTML (markdown-it); this job adds those
+    # optional packages so CI runs every test.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -39,8 +40,8 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install dependencies + optional extras
-        run: pip install -r requirements.txt "mcp>=2.1,<3" "dspy-ai>=3.0,<4" "pypdfium2>=4" reportlab
+        run: pip install -r requirements.txt "mcp>=2.1,<3" "dspy-ai>=3.0,<4" "pypdfium2>=4" reportlab markdown-it-py
       - name: Extras importable (otherwise their tests would skip, not fail)
-        run: python -c "import dspy, mcp, pypdfium2, reportlab"
+        run: python -c "import dspy, mcp, pypdfium2, reportlab, markdown_it"
       - name: Tests (pytest, full suite)
         run: pytest -q

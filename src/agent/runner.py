@@ -26,6 +26,7 @@ from .llm import get_llm
 from .observability import Tracer, persist_run
 from .progress import Progress, ProgressFn
 from .schemas import Budget, Report, RunResult, Step
+from .textutil import escape_markdown, markdown_url
 from .tools.embed import get_embedder
 from .tools.fetch import get_fetch
 from .tools.search import get_search
@@ -214,29 +215,35 @@ def _paused_result(run_id: str, question: str, state: dict[str, Any],
 
 
 def render_report_markdown(report: Report) -> str:
-    """Render a ``Report`` as Markdown with inline ``[n]`` citations + sources."""
+    """Render a ``Report`` as Markdown with inline ``[n]`` citations + sources.
+
+    Only the structure is Markdown. Every text field came from a person, a page or a
+    model that read pages, so it is escaped (``escape_markdown``): an injected image
+    or link shows as text in the UI, the download and the MCP server's output alike.
+    """
+    esc = escape_markdown
     n_by_evidence = {c.evidence_id: c.n for c in report.sources}
-    lines: list[str] = ["# Research Report\n", f"**Question:** {report.question}\n"]
+    lines: list[str] = ["# Research Report\n", f"**Question:** {esc(report.question)}\n"]
     if report.partial:
         lines.append("> ⚠️ This report is **partial**: the run stopped at a budget or "
                      "iteration limit, or a person has not approved it.\n")
     if report.summary:
-        lines.append(f"## Executive Summary\n\n{report.summary}\n")
+        lines.append(f"## Executive Summary\n\n{esc(report.summary)}\n")
 
     for section in report.sections:
-        lines.append(f"## {section.heading}\n")
+        lines.append(f"## {esc(section.heading)}\n")
         for claim in section.claims:
             marks = "".join(
                 f"[{n_by_evidence[eid]}]" for eid in claim.evidence_ids if eid in n_by_evidence
             )
             suffix = f" {marks}" if marks else ""
-            lines.append(f"- {claim.text}{suffix}")
+            lines.append(f"- {esc(claim.text)}{suffix}")
         lines.append("")
 
     if report.sources:
         lines.append("## Sources\n")
         for src in report.sources:
-            lines.append(f"{src.n}. {src.title} — {src.url}")
+            lines.append(f"{src.n}. {esc(src.title)} — {markdown_url(src.url)}")
         lines.append("")
     return "\n".join(lines)
 

@@ -28,6 +28,18 @@ _WORD_RE = re.compile(r"[a-z0-9]+")
 _SENT_RE = re.compile(r"(?<=[.!?])\s+")
 _HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s.*$", re.MULTILINE)
 _MD_NOISE_RE = re.compile(r"[*_`>]")
+# Markdown's markup characters: links and images ([ ] !), emphasis (* _ ~), code
+# spans (`), HTML and autolinks (< >), headings (#), math in Streamlit ($), and the
+# escape character itself. Not ( ): they only mean something right after a "]",
+# and every "]" is escaped, so ordinary prose keeps its parentheses as they are.
+_MD_SPECIAL_RE = re.compile(r"([\\`*_~\[\]!#<>$])")
+# What GitHub-flavoured Markdown links on its own: a bare URL's "://", "www." and an
+# e-mail address's "@". Escaped, GitHub leaves the address as text. Streamlit links
+# it anyway, after parsing, but as written (the link shows where it goes); left
+# unescaped, Streamlit pulls the next escape's backslash into the address.
+_BARE_LINK_RE = re.compile(r"(?i)(?:(?<=http)|(?<=https)|(?<=ftp)):(?=//)|(?<=www)\.|@")
+# What a CommonMark autolink (<url>) cannot contain.
+_AUTOLINK_UNSAFE_RE = re.compile(r"[\x00-\x20<>\x7f]")
 
 
 def tokenize(text: str) -> list[str]:
@@ -65,6 +77,30 @@ def strip_markdown(text: str) -> str:
     """
     no_headings = _HEADING_RE.sub("", text)
     return _MD_NOISE_RE.sub("", no_headings)
+
+
+def escape_markdown(text: str) -> str:
+    """``text`` as literal Markdown: on one line, every markup character escaped.
+
+    For text from outside the pipeline: page titles and snippets, and the claims a
+    model wrote after reading those pages. Escaped, a page cannot plant an image (a
+    browser loads it on sight, so it works as a tracking pixel) or a link whose text
+    hides where it goes. Backslash escapes are standard CommonMark, so the text reads
+    the same in any renderer; joining the lines keeps it inside its list item.
+    """
+    escaped = _MD_SPECIAL_RE.sub(r"\\\1", " ".join(text.split()))
+    return _BARE_LINK_RE.sub(r"\\\g<0>", escaped)
+
+
+def markdown_url(url: str) -> str:
+    """A source URL for Markdown: an http(s) URL as an autolink, anything else as text.
+
+    Nothing inside ``<...>`` is markup, so the URL shows exactly and links to itself;
+    the few characters an autolink cannot hold are percent-encoded.
+    """
+    if url.lower().startswith(("http://", "https://")):
+        return "<" + _AUTOLINK_UNSAFE_RE.sub(lambda m: f"%{ord(m.group()):02X}", url) + ">"
+    return escape_markdown(url)
 
 
 def split_sentences(text: str) -> list[str]:
