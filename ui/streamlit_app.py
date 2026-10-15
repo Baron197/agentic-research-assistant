@@ -31,6 +31,7 @@ import threading
 import time
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 import streamlit as st
@@ -101,6 +102,8 @@ ss.setdefault("max_iter", 2)
 ss.setdefault("budget", 60_000)
 ss.setdefault("critic", True)
 ss.setdefault("approval", False)
+ss.setdefault("keyless_run", False)  # a real-mode server's free runs (settings_sidebar)
+ss.setdefault("obs_runs", "Real")  # which runs the Observability page averages
 
 
 # Streamlit discards a widget's value when a page run doesn't draw that widget, so
@@ -326,7 +329,8 @@ def api_health() -> dict[str, Any] | None:
         mode = s.mode_summary() if hasattr(s, "mode_summary") else {}
         return {"status": "ok", "version": e["version"], "keyless": s.is_keyless,
                 "mode": mode, "backend": "in-process",
-                "limits": {"token_budget": s.token_budget, "max_iterations": s.max_iterations}}
+                "limits": {"token_budget": s.token_budget, "max_iterations": s.max_iterations},
+                "keyless_runs": hasattr(s, "as_keyless")}
     try:
         return httpx.get(f"{API_URL}/health", timeout=5).json()
     except Exception:  # noqa: BLE001
@@ -348,7 +352,25 @@ def ui_mode(health: dict[str, Any] | None) -> dict[str, Any]:
         "own_docs": not web and mode.get("corpus") == "custom",
         "llm": mode.get("llm", "rule-based"),
         "meaning": mode.get("evidence") == "meaning",
+        # A real-mode server whose runs this session switched to keyless.
+        "switched": bool((health or {}).get("switched")),
     }
+
+
+def offers_keyless(health: dict[str, Any] | None) -> bool:
+    """A real-mode backend that takes keyless runs. An API from before keyless runs
+    would ignore the request's ``keyless`` field and run, and charge, in real mode."""
+    return bool(health) and health.get("keyless") is False and bool(health.get("keyless_runs"))
+
+
+def run_health(health: dict[str, Any] | None) -> dict[str, Any] | None:
+    """``health`` as this session's runs see it: keyless while the sidebar switch is on."""
+    if not (offers_keyless(health) and ss.get("keyless_run")):
+        return health
+    corpus = (health.get("mode") or {}).get("corpus", "bundled")
+    return {**health, "keyless": True, "switched": True, "server_llm": health["mode"]["llm"],
+            "mode": {"llm": "rule-based", "sources": "corpus", "corpus": corpus,
+                     "evidence": "words"}}
 
 
 def md(text: str) -> str:
@@ -398,12 +420,14 @@ def _embedded_get(path: str) -> Any | None:
     if e is None:
         return None
     s = e["get_settings"]()
-    if path == "/metrics":
-        return e["aggregate"](s.traces_dir)
+    if path == "/metrics" or path.startswith("/metrics?"):
+        mode = parse_qs(urlparse(path).query).get("mode", [None])[0]
+        if mode is None:
+            return e["aggregate"](s.traces_dir)
+        return e["aggregate"](s.traces_dir, keyless=mode == "keyless")
     if path == "/corpus":
         return {"provider": s.search_provider, "documents": e["list_corpus"](s.corpus_dir)}
     if path == "/runs" or path.startswith("/runs?"):
-        from urllib.parse import parse_qs, urlparse
         limit = int(parse_qs(urlparse(path).query).get("limit", ["20"])[0])
         return {"runs": e["recent_runs"](s.traces_dir, limit)}
     if path.startswith("/runs/"):
@@ -420,11 +444,12 @@ def _embedded_get(path: str) -> Any | None:
     return None
 
 
-def _base_payload() -> dict[str, Any]:
-    return {"question": ss.get("q", DEFAULT_Q),
-            "max_iterations": int(ss.get("max_iter", 2)),
-            "token_budget": int(ss.get("budget", 60_000)),
-            "require_approval": bool(ss.get("approval", False))}
+def _base_payload(keyless: bool = False) -> dict[str, Any]:
+    payload = {"question": ss.get("q", DEFAULT_Q),
+               "max_iterations": int(ss.get("max_iter", 2)),
+               "token_budget": int(ss.get("budget", 60_000)),
+               "require_approval": bool(ss.get("approval", False))}
+    return {**payload, "keyless": True} if keyless else payload
 
 
 ProgressFn = Callable[[float, str], None]
@@ -487,6 +512,8 @@ def _embedded_research(payload: dict[str, Any], on_progress: ProgressFn | None =
     if e is None:
         return None, "Embedded backend unavailable (the agent package could not be imported)."
     settings = e["get_settings"]()
+    if payload.get("keyless"):  # only sent when api_health offered keyless runs
+        settings = settings.as_keyless()
     overrides = e["cap_request"](settings, {
         k: payload[k] for k in
         ("max_iterations", "token_budget", "require_approval", "enable_critic")
@@ -513,6 +540,7 @@ def _embedded_response(e: dict[str, Any], res: Any) -> dict[str, Any]:
         "removed_claims": res.removed_claims,
         "citation_coverage": round(res.citation_coverage, 4),
         "support_rate": round(e["support_rate"](res.report, res.evidence), 4),
+        "keyless": getattr(res, "keyless", None),
     }
 
 
@@ -784,7 +812,7 @@ def sidebar_health(health: dict[str, Any] | None = None) -> None:
         st.toggle("Dark mode", value=bool(ss.get("dark", False)),
                   key="dark_toggle", on_change=_sync_dark,
                   help="Switch the whole app between light and dark themes.")
-        health = health or api_health()
+        health = run_health(health or api_health())
         if not health:
             st.error(f"API not reachable at {API_URL}")
             return
@@ -793,16 +821,29 @@ def sidebar_health(health: dict[str, Any] | None = None) -> None:
                    else "your own documents" if m["own_docs"] else "bundled corpus")
         evidence = "evidence by meaning" if m["meaning"] else "evidence by words"
         backend = "In-process backend" if health.get("backend") == "in-process" else "API up"
-        title = (f"**Real mode** · {m['llm']}" if m["real"]
-                 else "**Keyless demo** · offline · $0")
+        if m["switched"]:
+            title = f"**Keyless runs** · offline · $0  \nserver: real mode · {health['server_llm']}"
+        elif m["real"]:
+            title = f"**Real mode** · {m['llm']}"
+        else:
+            title = "**Keyless demo** · offline · $0"
         st.success(md(f"{title}  \n{sources}  \n{evidence}  \n"
                       f"{backend} · v{health.get('version', '?')}"))
 
 
 def settings_sidebar(show_critic: bool = True,
                      show_approval: bool = True) -> dict[str, Any] | None:
-    """The run-settings sidebar; returns the backend's health for mode-aware text."""
-    health = api_health()
+    """The run-settings sidebar. Returns the backend's health as this session's runs
+    see it (keyless while the keyless switch is on), for mode-aware text."""
+    server = api_health()
+    with st.sidebar:
+        st.header("Run settings")
+        if offers_keyless(server):
+            st.toggle("Keyless run (free)", **_kept("keyless_run"),
+                      help="Run on the offline demo agents and local documents instead: "
+                           "instant, $0, the same report every time. The server stays in "
+                           "real mode; switch this off for a real run.")
+    health = run_health(server)
     m = ui_mode(health)
     # In real mode the server's TOKEN_BUDGET / MAX_ITERATIONS are a ceiling (it
     # lowers any request above them), so the inputs stop there too.
@@ -813,7 +854,6 @@ def settings_sidebar(show_critic: bool = True,
     ss.max_iter = min(int(ss.max_iter), max_iter)
     ss.budget = min(int(ss.budget), max_budget)
     with st.sidebar:
-        st.header("Run settings")
         iter_help = ("How many times the critic may send the draft back to be rewritten. "
                      "0 = check once, no rewrite.")
         if m["real"]:
@@ -898,10 +938,11 @@ def render_result(r: dict[str, Any], detail: dict[str, Any]) -> None:
     sup = r.get("support_rate")
     sup_s = f" · support {sup:.0%}" if isinstance(sup, (int, float)) else ""
     removed_s = f" · removed by critic {len(removed)}" if critic_ran else ""
+    mode_s = {True: " · keyless run", False: " · real run"}.get(r.get("keyless"), "")
     st.markdown(
         f'<div class="runmeta">Cost ${r["usd"]:.4f} · latency {r["latency_ms"]:.0f} ms · '
         f'dropped claims {r["dropped_claims"]}{removed_s}{sup_s} · critic '
-        f'{"ran" if critic_ran else "off"} · run_id <code>{r["run_id"]}</code></div>',
+        f'{"ran" if critic_ran else "off"}{mode_s} · run_id <code>{r["run_id"]}</code></div>',
         unsafe_allow_html=True,
     )
 
@@ -1066,7 +1107,11 @@ def render_compare(cmp: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------- pages
 def page_research() -> None:
     m = ui_mode(settings_sidebar(show_critic=True))
-    if m["real"]:
+    if m["switched"]:
+        intro = ("Keyless runs, switched on in the sidebar: rule-based agents over "
+                 f"{sources_label(m)}, offline and free, the same report every time. This "
+                 "server is in real mode: switch it off for a real run.")
+    elif m["real"]:
         intro = (f"Real mode: <b>{html.escape(m['llm'])}</b> plans, writes and checks the "
                  f"report, using sources from {sources_label(m)}. Every citation points to a "
                  "source that was actually retrieved.")
@@ -1094,8 +1139,8 @@ def page_research() -> None:
     # lost its theme for the length of the run.
     if st.button("Run research", type="primary", use_container_width=True,
                  disabled="job" in ss) and "job" not in ss:
-        _start_job("research", [{**_base_payload(), "enable_critic": bool(ss.get("critic", True))}],
-                   [""])
+        _start_job("research", [{**_base_payload(keyless=m["switched"]),
+                                 "enable_critic": bool(ss.get("critic", True))}], [""])
         st.rerun()  # redraw at once with the button disabled, so it can't start a second run
     _job_elsewhere("research")
     results = _follow_job("research", "Researching…")
@@ -1132,7 +1177,8 @@ def page_compare() -> None:
     st.text_input("Research question", **_kept("q"))
     if st.button("Run A/B comparison", type="primary", use_container_width=True,
                  disabled="job" in ss) and "job" not in ss:  # not on_click: see page_research
-        base = {**_base_payload(), "require_approval": False}  # a measurement, not a release
+        # A measurement, not a release: never paused for approval.
+        base = {**_base_payload(keyless=m["switched"]), "require_approval": False}
         _start_job("compare", [{**base, "enable_critic": True}, {**base, "enable_critic": False}],
                    ["Critic ON: ", "Critic OFF: "])
         st.rerun()
@@ -1164,6 +1210,11 @@ def page_compare() -> None:
                 "citation-coverage and support delta between critic ON and OFF.")
 
 
+def _mode_label(row: dict[str, Any]) -> str:
+    """A run's mode for the History and Observability tables ("—" from an older API)."""
+    return {True: "keyless", False: "real"}.get(row.get("keyless"), "—")
+
+
 def page_history() -> None:
     health = api_health()
     sidebar_health(health)
@@ -1176,18 +1227,21 @@ def page_history() -> None:
     shared = (" Runs are stored on this server: anyone who can open this app can see them."
               if ui_mode(health)["real"] else "")
     st.caption(f"{len(runs)} most recent run(s). Click **View** to reopen one below.{shared}")
-    head = st.columns([6, 2, 2, 2, 1.6])
-    for c, label in zip(head, ["Question", "Status", "Coverage", "Tokens", ""], strict=True):
+    widths = [5.2, 1.4, 2, 1.6, 1.6, 1.6]
+    head = st.columns(widths)
+    for c, label in zip(head, ["Question", "Mode", "Status", "Coverage", "Tokens", ""],
+                        strict=True):
         c.markdown(f"**{label}**" if label else "")
     for it in runs:
-        c = st.columns([6, 2, 2, 2, 1.6])
+        c = st.columns(widths)
         q = (it.get("question") or "(no question)").strip()
         c[0].write(q[:70] + ("…" if len(q) > 70 else ""))
-        c[1].write(it.get("status", "?"))
+        c[1].write(_mode_label(it))
+        c[2].write(it.get("status", "?"))
         cov = it.get("citation_coverage")
-        c[2].write(f"{cov:.0%}" if isinstance(cov, (int, float)) else "—")
-        c[3].write(f"{it.get('tokens', 0):,}")
-        c[4].button("View", key=f"view_{it.get('run_id')}", on_click=load_run,
+        c[3].write(f"{cov:.0%}" if isinstance(cov, (int, float)) else "—")
+        c[4].write(f"{it.get('tokens', 0):,}")
+        c[5].button("View", key=f"view_{it.get('run_id')}", on_click=load_run,
                     args=(it.get("run_id"),), use_container_width=True)
 
     if ss.error:
@@ -1207,6 +1261,15 @@ def page_observability() -> None:
     if not agg or not agg.get("runs"):
         st.info("No runs recorded yet — run some research to populate metrics.")
         return
+    by_mode = agg.get("runs_by_mode") or {}
+    if by_mode.get("real") and by_mode.get("keyless"):
+        st.radio("Average over", ["Real", "Keyless", "All"], horizontal=True,
+                 **_kept("obs_runs"),
+                 help=f"{by_mode['real']} real-mode and {by_mode['keyless']} keyless runs.")
+        st.caption("Keyless runs cost $0 and take milliseconds: averaged with real runs, they "
+                   "would make real mode look cheaper and faster than it is.")
+        if ss.obs_runs != "All":
+            agg = api_get(f"/metrics?mode={ss.obs_runs.lower()}") or agg
     r1 = st.columns(3)
     r1[0].metric("Total runs", agg["runs"])
     r1[1].metric("Avg cost / run", f"${agg['avg_cost_usd']:.4f}")
@@ -1230,6 +1293,7 @@ def page_observability() -> None:
         body.append(
             "<tr>"
             f"<td style='padding:6px 8px'>{q}</td>"
+            f"<td style='padding:6px 8px'>{_mode_label(it)}</td>"
             f"<td style='padding:6px 8px'>{html.escape(str(it.get('status', '?')))}</td>"
             f"<td style='padding:6px 8px;text-align:center'>{cov_s}</td>"
             f"<td style='padding:6px 8px;text-align:right'>{it.get('tokens', 0):,}</td>"
@@ -1240,6 +1304,7 @@ def page_observability() -> None:
         "<table style='width:100%;border-collapse:collapse'>"
         "<thead><tr style='background:#1b3a5c;color:#fff'>"
         "<th style='padding:8px;text-align:left'>Question</th>"
+        "<th style='padding:8px;text-align:left'>Mode</th>"
         "<th style='padding:8px;text-align:left'>Status</th>"
         "<th style='padding:8px'>Coverage</th>"
         "<th style='padding:8px;text-align:right'>Tokens</th>"
@@ -1287,8 +1352,10 @@ def _corpus_list_md(m: dict[str, Any]) -> str:
 
 def _you_are_on(m: dict[str, Any]) -> str:
     if m["real"]:
+        switched = (" Your runs are keyless for now: the sidebar's *Keyless run (free)* "
+                    "switch is on." if ss.get("keyless_run") else "")
         return (f"You're on **real mode**: {m['llm']}, sources from {sources_label(m)}, "
-                f"evidence picked by {'meaning' if m['meaning'] else 'words'}.")
+                f"evidence picked by {'meaning' if m['meaning'] else 'words'}.{switched}")
     return "You're on the **keyless demo**: rule-based agents, bundled corpus, offline, $0."
 
 
@@ -1363,7 +1430,10 @@ def page_guide() -> None:
                 "| **Enable verifying critic** | OFF skips the claim check, so unsupported "
                 "claims stay in the report; in real mode it also saves the critic's model "
                 "calls |\n"
-                "| **Require human approval** | pauses each run before its final step: you "
+                + ("| **Keyless run (free)** | runs on the offline demo agents and local "
+                   "documents instead of the real model: instant and $0. The server stays in "
+                   "real mode |\n" if m["real"] else "")
+                + "| **Require human approval** | pauses each run before its final step: you "
                 "read the draft, then **Approve** it (the report is released) or **Reject** "
                 "it. Not used on the Critic A/B page |\n\n"
                 + ("In real mode the server's own `TOKEN_BUDGET` and `MAX_ITERATIONS` are the "
@@ -1436,7 +1506,12 @@ def page_guide() -> None:
             "- **Web search** uses Tavily: a run makes about 5 searches, and its free plan "
             "gives 1,000 credits a month (one per basic search).\n"
             "- **Every run's cost** is on its meta line; the Observability page averages "
-            "them.\n\n"
+            "them.\n"
+            "- **Free runs on a real server:** the sidebar's *Keyless run (free)* switch runs "
+            "the offline demo agents over the local documents instead, at $0. Use it to try "
+            "the app, or to show the Critic A/B's planted claim, which only the keyless writer "
+            "makes. History marks each run's mode, and Observability averages the two kinds "
+            "apart.\n\n"
             "### Writing good questions\n"
             "- One topic per question, with the context that matters (\"for a small team\", "
             "\"in Python\", \"as of 2026\").\n"
@@ -1563,7 +1638,9 @@ def page_guide() -> None:
             "| **Avg citation coverage** | mean share of claims carrying a citation | 100% "
             "| close to 100% |\n\n"
             "The two value columns are typical values from measured runs (October 2026), "
-            "not this app's own numbers: those are on the Observability page.\n\n"
+            "not this app's own numbers: those are on the Observability page. When a "
+            "real-mode server has keyless runs too, the page averages real runs by default "
+            "(pick *Keyless* or *All* above the numbers).\n\n"
             "Cost is honest by construction: the keyless model is priced at `$0`, so a "
             "keyless run genuinely reports zero. A real model is priced at list price from "
             "the provider's own token counts, input and output separately. Search and fetch "
@@ -1715,7 +1792,12 @@ def page_guide() -> None:
             "**I got \"API error 502: model output failed validation\".**  \n"
             "The model's answer didn't match the expected format, even after automatic "
             "retries. Run the question again.\n\n"
-            "**Where do I see what a run cost?**  \n"
+            "**Can I try it without paying?**  \n"
+            + ("Yes: switch on *Keyless run (free)* in the sidebar. Runs then use the "
+               "offline demo agents and local documents, instantly and at $0; switch it off "
+               "for a real run.\n\n" if m["real"] else
+               "This demo is already free: it runs offline, with no model or search API.\n\n")
+            + "**Where do I see what a run cost?**  \n"
             "On its meta line (\"Cost $…\"), and averaged on the **Observability** page."
         )
 

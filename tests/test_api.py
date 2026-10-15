@@ -138,6 +138,36 @@ def test_metrics_endpoint(client):
     assert client.get("/metrics").json()["runs"] == 0
     client.post("/research", json={"question": "What is chunking in RAG?"})
     assert client.get("/metrics").json()["runs"] == 1
+    assert client.get("/metrics?mode=keyless").json()["runs"] == 1
+    assert client.get("/metrics?mode=real").json()["runs"] == 0
+    assert client.get("/metrics?mode=cheap").status_code == 422
+
+
+def test_a_real_server_runs_keyless_on_request(client, monkeypatch, tmp_path):
+    # The UI's "Keyless run (free)" switch on a real-mode server: the offline fakes
+    # run instead, uncapped (the ceiling exists to bound spending), and the run is
+    # recorded as keyless so real-mode metrics stay apart.
+    import agent.api as api
+
+    real = real_settings(token_budget=40_000, traces_dir=tmp_path / "real-runs")
+    monkeypatch.setattr(api, "get_settings", lambda: real)
+    seen = {}
+
+    def spy(question, *, settings, **overrides):
+        seen.update(overrides, keyless=settings.is_keyless)
+        return run(question, settings=settings, **overrides)
+
+    run = api.run
+    monkeypatch.setattr(api, "run", spy)
+    assert client.get("/health").json()["keyless_runs"] is True
+    data = client.post("/research", json={"question": "What is reranking?", "keyless": True,
+                                          "token_budget": 100_000}).json()
+    assert seen["keyless"] is True and seen["token_budget"] == 100_000
+    assert data["keyless"] is True and data["usd"] == 0
+    assert all(s["url"].startswith("local://") for s in data["report"]["sources"])
+    assert _stream(client, {"question": "What is reranking?", "keyless": True})[-1]["data"][
+        "keyless"] is True
+    assert client.get("/metrics?mode=keyless").json()["runs"] == 2
 
 
 def test_list_runs_is_newest_first_with_summaries(client):

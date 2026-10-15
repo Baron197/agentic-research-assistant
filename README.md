@@ -5,7 +5,7 @@
 [![Live demo](https://img.shields.io/badge/Live%20demo-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://agentic-research-assistant-ra3rebpqgkqvyyw5wryrma.streamlit.app/)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
 [![CI](https://github.com/Baron197/agentic-research-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/Baron197/agentic-research-assistant/actions/workflows/ci.yml)
-[![tests](https://img.shields.io/badge/tests-126%20passing-brightgreen.svg)](#testing--ci)
+[![tests](https://img.shields.io/badge/tests-129%20passing-brightgreen.svg)](#testing--ci)
 [![Lint: ruff](https://img.shields.io/badge/lint-ruff-46a2f1.svg)](https://github.com/astral-sh/ruff)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Keyless](https://img.shields.io/badge/runs-keyless%20%240.00-brightgreen.svg)](#quickstart-keyless)
@@ -32,7 +32,7 @@
 - **Human-in-the-loop approval** — with `require_approval` on, a run **pauses** before its final step (LangGraph `interrupt()` with a checkpoint) and shows the draft exactly as it would be released; a person approves or rejects it in the UI or through `POST /runs/{id}/approval`, and the run resumes from where it stopped.
 - **Evaluation wired into CI as a gate** — real metrics (no fabricated numbers), a critic ON/OFF A/B, and a `--min-citation-coverage` gate that fails the build on regression. The A/B was also re-run with a real model, where the critic's effect measured ~0 — reported as-is ([see why](#critic-ab--and-what-it-does-not-prove)).
 - **First-class observability** — every run records an ordered trace of steps with tokens, USD cost (list price, input and output priced separately from the provider's own usage counts), and latency; `/metrics` aggregates runs with a nearest-rank p95. While a run works, the UI shows a live progress bar (the current stage, sources read so far, a percentage), streamed from `POST /research/stream`.
-- **Keyless mode** — `make test`, `make eval`, and the API all work with **no API key**; real mode (OpenAI + a real search provider) is one env var away.
+- **Keyless mode** — `make test`, `make eval`, and the API all work with **no API key**; real mode (OpenAI + a real search provider) is one env var away. A real-mode server can still run keyless on request (the UI's *Keyless run (free)* switch, or `"keyless": true`), and History and Observability keep the two kinds of run apart.
 - **DSPy track (optional)** — the LLM reasoning steps can be swapped for declarative DSPy modules whose prompts are **auto-optimized** against the project's own grounding metric ("programming, not prompting"); import-guarded and off by default.
 - **MCP server (optional)** — the same pipeline is exposed over the **Model Context Protocol**, so Claude Desktop (or any MCP host) can call it as a tool and get back a report whose citations are structurally guaranteed. The no-fabricated-sources property becomes a promise the *calling* model can rely on.
 
@@ -228,15 +228,17 @@ Five pages (native `st.navigation`, shared state across pages):
   passage, and exactly which claim cites it), *Corpus* (which docs were used vs not
   retrieved), *Step timeline* (a colour-coded per-node trace), *Agent graph*, and
   *Run data*. With *Require human approval* ticked, the run pauses before its final
-  step and shows **Approve** / **Reject** above the draft.
+  step and shows **Approve** / **Reject** above the draft. On a real-mode server, the
+  *Keyless run (free)* switch runs the offline demo agents instead, at $0.
 - **Critic A/B** — one click runs the same question with the critic **ON and OFF** and
   shows the citation-coverage / support delta side by side — a live demonstration of the
   removal mechanism (keyless +0.17 is by construction; ~0 with a real model —
   [see the caveat](#critic-ab--and-what-it-does-not-prove)).
-- **History** — a browsable table of past runs; reopen any into all six tabs (a run
-  still waiting for approval can be approved or rejected there too).
+- **History** — a browsable table of past runs, each marked real or keyless; reopen any
+  into all six tabs (a run still waiting for approval can be approved or rejected there too).
 - **Observability** — the aggregate dashboard (total runs, avg cost, avg/p95 latency,
-  avg coverage) fed by `GET /metrics`.
+  avg coverage) fed by `GET /metrics`. When a real-mode server also has keyless runs, it
+  averages real runs by default, since free millisecond runs would flatter the numbers.
 - **Guide** — an in-app explainer in seven tabs (getting started, real mode, reading a report,
   observability, evaluation, concepts, FAQ). It reads the backend's mode, so a real-mode instance
   explains its model, sources, measured cost and time, limits, trust and privacy, while the
@@ -417,7 +419,7 @@ A suggested reading order for an AI-engineering reviewer:
 
 ```
 src/agent/
-  config.py          typed settings (pydantic-settings); defaults = fake/offline
+  config.py          typed settings (pydantic-settings); defaults = fake/offline; as_keyless()
   context.py         AgentContext: the injected dependency bundle (providers, tracer, settings)
   schemas.py         SubQuestion, ResearchPlan, Evidence, Report, Citation, Critique, Budget, Step
   llm.py             LLM protocol + FakeLLM (rule-based per role) + OpenAILLM (lazy)
@@ -449,7 +451,7 @@ data/corpus/         11 seed docs (the "web" FakeSearch/FakeFetch operate over)
 eval/
   tasks.jsonl        12 golden tasks (incl. 2 out-of-corpus abstention checks)
   run_eval.py        metrics + critic A/B + CI gate
-tests/               deterministic, keyless end-to-end + unit tests (126; 26 need optional extras, which CI installs in a second job)
+tests/               deterministic, keyless end-to-end + unit tests (129; 26 need optional extras, which CI installs in a second job)
 docs/screenshots/    UI screenshots used in this README
 Dockerfile  docker-compose.yml  .dockerignore  Makefile  pyproject.toml  requirements.txt
 .env.example  .gitattributes  .github/workflows/ci.yml
@@ -458,7 +460,7 @@ README.md  ARCHITECTURE.md  DEPLOYMENT.md  REAL_MODE.md  LICENSE
 
 ## Testing & CI
 
-`make test` runs a fast, deterministic, keyless suite of **126 tests** (graph
+`make test` runs a fast, deterministic, keyless suite of **129 tests** (graph
 end-to-end, no-fabricated-sources, the one-revise critic loop + iteration cap,
 tiny-budget → `partial`, the **parallel researcher fan-out** — proving a
 concurrent run is byte-identical to a serial one — the **depth** knob, the
@@ -472,16 +474,17 @@ stand-in embedder: pricing, size limits, fallback, parallel = serial), the real-
 the record of claims the critic removed, the progress a run reports (every stage, in order,
 never backwards, without changing the result), the human-approval gate (a run that pauses
 releases exactly the draft the reviewer read, takes one decision only, survives a budget
-overrun, keeps paused runs bounded in memory, and is asked about at the CLI),
-and the API incl. the `/runs`, `/runs/{id}/approval`, `/corpus`, `/research/stream`,
-`enable_critic` and 422 paths).
+overrun, keeps paused runs bounded in memory, and is asked about at the CLI), keyless runs
+on a real-mode server (every paid service off, uncapped, recorded as keyless, and averaged
+apart from real runs), and the API incl. the `/runs`, `/runs/{id}/approval`, `/corpus`,
+`/research/stream`, `enable_critic` and 422 paths).
 Twenty-six of them exercise **optional** extras
 (19 the MCP server — including its schemas, its real-mode cost guard, its refusal to skip a
 required approval, and a stdout-purity check that protects the stdio transport — 6 the DSPy
 backend, 1 PDF-corpus reading) and do not run unless those extras are installed. So a
-default keyless install reports **100 passed, 3 skipped** — the three
+default keyless install reports **103 passed, 3 skipped** — the three
 optional groups skip as whole units — while a machine with the extras present
-runs all **126**, still keyless via fakes / `DummyLM`. CI
+runs all **129**, still keyless via fakes / `DummyLM`. CI
 (`.github/workflows/ci.yml`) runs `ruff check .` → `pytest -q` → the eval gate, and a
 second job installs the optional extras and runs the full suite, so every test runs in CI,
 all keyless with no secrets.

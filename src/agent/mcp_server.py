@@ -62,16 +62,6 @@ CORPUS_RESOURCE_URI = "corpus://documents"
 # capped here rather than left to whatever the caller asks for.
 MAX_DEPTH = 5
 
-# Applied when real mode is configured but not allowed for MCP callers. Forcing
-# all five fields (not just the LLM) is what makes ``is_keyless`` true again.
-KEYLESS_OVERRIDES: dict[str, Any] = {
-    "llm_provider": "fake",
-    "search_provider": "fake",
-    "fetch_provider": "fake",
-    "agent_backend": "manual",
-    "evidence_ranking": "lexical",
-}
-
 # Server-level guidance, surfaced to the host during initialisation. This is the
 # one place to tell a calling model what the server is *for* and what its output
 # means, before it has looked at any individual tool.
@@ -111,7 +101,7 @@ def resolve_settings(settings: Settings | None = None) -> tuple[Settings, bool]:
     raw = settings if settings is not None else get_settings()
     if raw.is_keyless or raw.mcp_allow_real_mode:
         return raw, False
-    return raw.model_copy(update=KEYLESS_OVERRIDES), True
+    return raw.as_keyless(), True
 
 
 def corpus_payload(settings: Settings) -> dict[str, Any]:

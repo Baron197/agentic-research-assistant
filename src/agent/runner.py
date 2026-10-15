@@ -140,9 +140,9 @@ def run(
 
     paused = can_pause and bool(graph.get_state(config).next)
     if paused:
-        result = _paused_result(run_id, question, final_state, latency_ms)
+        result = _paused_result(run_id, question, final_state, latency_ms, settings)
     else:
-        result = _result(run_id, question, final_state, latency_ms)
+        result = _result(run_id, question, final_state, latency_ms, settings)
 
     if persist:
         persist_run(result, settings.traces_dir)
@@ -169,14 +169,15 @@ def resume(run_id: str, approved: bool) -> RunResult:
     final_state = paused.graph.invoke(Command(resume=bool(approved)), config=paused.config)
     latency_ms = paused.latency_ms + (perf_counter() - start) * 1000.0
 
-    result = _result(run_id, paused.question, final_state, latency_ms).model_copy(
-        update={"created_at": paused.created_at})
+    result = _result(run_id, paused.question, final_state, latency_ms,
+                     paused.ctx.settings).model_copy(update={"created_at": paused.created_at})
     if paused.persist:
         persist_run(result, paused.ctx.settings.traces_dir)
     return result
 
 
-def _result(run_id: str, question: str, state: dict[str, Any], latency_ms: float) -> RunResult:
+def _result(run_id: str, question: str, state: dict[str, Any], latency_ms: float,
+            settings: Settings) -> RunResult:
     report = state.get("final") or Report(question=question, partial=True)
     budget = state["budget"]
     return RunResult(
@@ -193,11 +194,12 @@ def _result(run_id: str, question: str, state: dict[str, Any], latency_ms: float
         removed_claims=list(state.get("rejected", [])),
         trace=state.get("trace", []),
         evidence=state.get("evidence", []),
+        keyless=settings.is_keyless,
     )
 
 
 def _paused_result(run_id: str, question: str, state: dict[str, Any],
-                   latency_ms: float) -> RunResult:
+                   latency_ms: float, settings: Settings) -> RunResult:
     """A run waiting at the approval gate: its draft, as approving would release it."""
     report, dropped = assemble_report(question, state.get("draft"), state["evidence"])
     waiting = Step(node="approval", input_summary="human approval requested",
@@ -208,7 +210,7 @@ def _paused_result(run_id: str, question: str, state: dict[str, Any],
         "status": "awaiting_approval",
         "dropped_claims": int(state.get("dropped_claims", 0)) + dropped,
         "trace": [*state.get("trace", []), waiting],
-    }, latency_ms)
+    }, latency_ms, settings)
 
 
 def render_report_markdown(report: Report) -> str:

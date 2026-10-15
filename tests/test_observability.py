@@ -1,14 +1,16 @@
-"""Costing and run aggregation (p95 nearest-rank, torn-line resilience)."""
+"""Costing and run aggregation (p95 nearest-rank, torn-line resilience, real vs keyless)."""
 
 from __future__ import annotations
 
+import json
 import sys
 import types
 
 import pytest
 
 from agent.llm import LLMRequest, LLMResponse, OpenAILLM
-from agent.observability import Tracer, aggregate, cost_usd
+from agent.observability import Tracer, aggregate, cost_usd, persist_run, recent_runs
+from agent.schemas import Report, RunResult
 from tests.conftest import QUESTION
 
 
@@ -115,5 +117,32 @@ def test_aggregate_empty(tmp_path):
     agg = aggregate(tmp_path)
     assert agg["runs"] == 0
     assert agg["p95_latency_ms"] == 0.0
+    assert agg["runs_by_mode"] == {"real": 0, "keyless": 0}
     assert set(agg) == {"runs", "avg_cost_usd", "avg_latency_ms", "p95_latency_ms",
-                        "avg_steps", "avg_citation_coverage"}
+                        "avg_steps", "avg_citation_coverage", "runs_by_mode"}
+
+
+def test_real_and_keyless_runs_are_kept_apart(tmp_path):
+    # Free, millisecond keyless runs would pull real-mode averages down. A row
+    # saved before the mode was recorded counts as keyless only if it cost nothing.
+    rows = [
+        {"run_id": "r1", "usd": 0.002, "latency_ms": 30_000, "keyless": False},
+        {"run_id": "k1", "usd": 0.0, "latency_ms": 10, "keyless": True},
+        {"run_id": "old-real", "usd": 0.001, "latency_ms": 20_000},
+        {"run_id": "old-free", "usd": 0.0, "latency_ms": 12},
+    ]
+    (tmp_path / "index.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n",
+                                          encoding="utf-8")
+    everything = aggregate(tmp_path)
+    assert everything["runs"] == 4
+    assert everything["runs_by_mode"] == {"real": 2, "keyless": 2}
+    real = aggregate(tmp_path, keyless=False)
+    assert (real["runs"], real["avg_cost_usd"], real["avg_latency_ms"]) == (2, 0.0015, 25_000)
+    assert aggregate(tmp_path, keyless=True)["avg_cost_usd"] == 0
+    assert set(real) == set(aggregate(tmp_path / "empty"))  # the same keys as no runs
+    modes = {r["run_id"]: r["keyless"] for r in recent_runs(tmp_path)}
+    assert modes == {"r1": False, "k1": True, "old-real": False, "old-free": True}
+    # A recorded mode beats the guess: a real run that stopped before costing anything.
+    persist_run(RunResult(run_id="free-real", question="q", status="partial",
+                          report=Report(question="q"), keyless=False), tmp_path)
+    assert {r["run_id"]: r["keyless"] for r in recent_runs(tmp_path)}["free-real"] is False

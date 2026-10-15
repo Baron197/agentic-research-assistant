@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -20,6 +20,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Resolving paths against the root keeps corpus/runs lookups stable regardless
 # of the current working directory (tests, uvicorn, Streamlit, eval all differ).
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+# What turns a real-mode configuration keyless (Settings.as_keyless). Forcing
+# all five fields, not just the LLM, is what makes ``is_keyless`` true again:
+# the DSPy backend and evidence ranked by embeddings are paid too.
+KEYLESS_OVERRIDES: dict[str, Any] = {
+    "llm_provider": "fake",
+    "search_provider": "fake",
+    "fetch_provider": "fake",
+    "agent_backend": "manual",
+    "evidence_ranking": "lexical",
+}
 
 
 class Settings(BaseSettings):
@@ -171,6 +182,14 @@ class Settings(BaseSettings):
             and self.agent_backend == "manual"  # the DSPy backend runs a real, paid LLM
             and not self.uses_embeddings  # embedding calls are paid too
         )
+
+    def as_keyless(self) -> Settings:
+        """These settings with every paid service swapped for its offline fake.
+
+        The corpus, the run limits and the paths stay, so a keyless run on a
+        real-mode server searches the same local documents, for free.
+        """
+        return self.model_copy(update=KEYLESS_OVERRIDES)
 
 
 @lru_cache

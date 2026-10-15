@@ -127,6 +127,7 @@ def _summary_line(result: RunResult) -> dict[str, object]:
         "n_steps": len(result.trace),
         "n_claims": len(result.report.all_claims()),
         "citation_coverage": round(result.citation_coverage, 4),
+        "keyless": result.keyless,
     }
 
 
@@ -170,7 +171,8 @@ def _index_rows(traces_dir: Path) -> list[dict[str, Any]]:
     """The index's run summaries in append order, one per run (torn-line tolerant).
 
     A run that paused for approval is written twice, paused and then decided;
-    its latest line wins, kept where the run first appeared.
+    its latest line wins, kept where the run first appeared. Every row comes back
+    with ``keyless`` set (see ``_keyless``).
     """
     index = Path(traces_dir) / "index.jsonl"
     if not index.exists():
@@ -185,7 +187,17 @@ def _index_rows(traces_dir: Path) -> list[dict[str, Any]]:
         except json.JSONDecodeError:
             continue  # tolerate a torn line
         rows[row.get("run_id") or n] = row
-    return list(rows.values())
+    return [{**row, "keyless": _keyless(row)} for row in rows.values()]
+
+
+def _keyless(row: dict[str, Any]) -> bool:
+    """Whether an index row is a keyless run.
+
+    A row saved before the mode was recorded counts as keyless when it cost
+    nothing: a run on a paid model pays for at least the planner's call.
+    """
+    recorded = row.get("keyless")
+    return bool(recorded) if recorded is not None else float(row.get("usd", 0.0)) == 0.0
 
 
 def recent_runs(traces_dir: Path, limit: int = 20) -> list[dict[str, object]]:
@@ -209,7 +221,7 @@ def _percentile_nearest_rank(values: list[float], pct: float) -> float:
     return ordered[idx]
 
 
-def _empty_aggregate() -> dict[str, float | int]:
+def _empty_aggregate() -> dict[str, Any]:
     """Stable zero-valued shape so /metrics never changes keys on empty data."""
     return {
         "runs": 0,
@@ -218,20 +230,28 @@ def _empty_aggregate() -> dict[str, float | int]:
         "p95_latency_ms": 0.0,
         "avg_steps": 0.0,
         "avg_citation_coverage": 0.0,
+        "runs_by_mode": {"real": 0, "keyless": 0},
     }
 
 
-def aggregate(traces_dir: Path) -> dict[str, float | int]:
+def aggregate(traces_dir: Path, keyless: bool | None = None) -> dict[str, Any]:
     """Aggregate the run index into headline observability metrics.
 
     Resilient to a torn/partial final line (skips anything that does not parse),
     which is the realistic failure mode for an append-only JSONL written by
     multiple processes.
+
+    ``keyless`` keeps only keyless (True) or real-mode (False) runs, since free,
+    millisecond keyless runs would pull real-mode averages down; None counts
+    every run. ``runs_by_mode`` always counts both kinds.
     """
-    rows = _index_rows(traces_dir)
+    every = _index_rows(traces_dir)
+    by_mode = {"real": sum(not r["keyless"] for r in every),
+               "keyless": sum(r["keyless"] for r in every)}
+    rows = every if keyless is None else [r for r in every if r["keyless"] is keyless]
     n = len(rows)
     if n == 0:
-        return _empty_aggregate()
+        return {**_empty_aggregate(), "runs_by_mode": by_mode}
 
     latencies = [float(r.get("latency_ms", 0.0)) for r in rows]
     return {
@@ -243,4 +263,5 @@ def aggregate(traces_dir: Path) -> dict[str, float | int]:
         "avg_citation_coverage": round(
             sum(float(r.get("citation_coverage", 0.0)) for r in rows) / n, 4
         ),
+        "runs_by_mode": by_mode,
     }

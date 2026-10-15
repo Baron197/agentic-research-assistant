@@ -200,6 +200,9 @@ class RunResult(BaseModel):
     trace: list[Step] = Field(default_factory=list)
     evidence: list[Evidence] = Field(default_factory=list)
     created_at: str = Field(default_factory=_utcnow_iso)
+    # Whether the run used the keyless fakes (offline, $0), so real-mode metrics
+    # aren't averaged with free runs. None: saved before the mode was recorded.
+    keyless: bool | None = None
 
     @property
     def citation_coverage(self) -> float:

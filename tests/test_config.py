@@ -46,6 +46,17 @@ def test_is_keyless_false_for_dspy_backend():
     assert Settings(_env_file=None, agent_backend="dspy").is_keyless is False
 
 
+def test_as_keyless_turns_off_every_paid_service():
+    # A real-mode server's free runs (the UI's keyless switch, MCP callers): every
+    # paid service off, while the documents and run limits stay the server's own.
+    real = real_settings(agent_backend="dspy", corpus_dir="C:/my-notes", token_budget=40_000)
+    keyless = real.as_keyless()
+    assert real.is_keyless is False and keyless.is_keyless is True
+    assert keyless.mode_summary() == {"llm": "rule-based", "sources": "corpus",
+                                      "corpus": "custom", "evidence": "words"}
+    assert (keyless.corpus_dir, keyless.token_budget) == (real.corpus_dir, 40_000)
+
+
 def test_suite_ignores_the_developers_env_and_dotenv(tmp_path, monkeypatch):
     # A developer machine in real mode: a .env plus shell variables pointing at
     # OpenAI, live search and a private corpus. Tests must see none of it, or a

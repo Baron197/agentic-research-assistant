@@ -7,8 +7,8 @@ Endpoints:
   * ``GET  /runs``       — newest-first list of persisted run summaries (history).
   * ``GET  /runs/{id}``  — one persisted run, enriched with markdown + coverage.
   * ``GET  /corpus``     — list the local corpus documents (corpus-coverage view).
-  * ``GET  /health``     — liveness probe (+ mode and the run limits).
-  * ``GET  /metrics``    — aggregate observability metrics across all runs.
+  * ``GET  /health``     — liveness probe (+ mode, the run limits, keyless runs offered).
+  * ``GET  /metrics``    — aggregate observability metrics (``?mode=real|keyless`` for one kind).
 
 Inputs are validated declaratively by pydantic (length/range bounds -> HTTP 422).
 Business-logic errors are wrapped into clean HTTP 500s so stack traces never leak.
@@ -21,7 +21,7 @@ import json
 import queue
 import re
 import threading
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -66,6 +66,12 @@ class ResearchRequest(BaseModel):
         description="Toggle the verifying critic. False = the critic-OFF arm of "
                     "the A/B (uncited claims survive; lower citation coverage).",
     )
+    keyless: bool = Field(
+        default=False,
+        description="Run on the offline fakes (rule-based agents, local documents, $0) "
+                    "even though this server is in real mode. It can only lower the "
+                    "cost: a keyless server runs keyless either way.",
+    )
 
     @field_validator("question")
     @classmethod
@@ -100,6 +106,7 @@ class ResearchResponse(BaseModel):
     removed_claims: list[str] = Field(default_factory=list)
     citation_coverage: float
     support_rate: float
+    keyless: bool | None = None
 
 
 @app.get("/health")
@@ -112,7 +119,17 @@ def health() -> dict[str, Any]:
         # In real mode these are the most a request may ask for (cap_request);
         # the UI sizes its run-settings inputs from them.
         "limits": {k: getattr(settings, k) for k in ("token_budget", "max_iterations")},
+        # A request may ask for a keyless run ("keyless": true); the UI offers its
+        # switch only when the API says so, since an older one would ignore the
+        # field and run, and charge, in real mode.
+        "keyless_runs": True,
     }
+
+
+def _settings_for(req: ResearchRequest) -> Any:
+    """This server's settings, or their keyless copy when the request asks for one."""
+    settings = get_settings()
+    return settings.as_keyless() if req.keyless else settings
 
 
 def _overrides(req: ResearchRequest, settings: Any) -> dict[str, Any]:
@@ -141,7 +158,7 @@ def _run_error(exc: Exception) -> HTTPException:
 
 @app.post("/research", response_model=ResearchResponse)
 def research(req: ResearchRequest) -> ResearchResponse:
-    settings = get_settings()
+    settings = _settings_for(req)
     try:
         result = run(req.question, settings=settings, **_overrides(req, settings))
     except Exception as exc:  # noqa: BLE001 - mapped to 502 / 422 / a clean 500
@@ -158,7 +175,7 @@ def research_stream(req: ResearchRequest) -> StreamingResponse:
     ``POST /research`` body) or ``{"type": "error", "status": 502, "detail": ...}``.
     A question that fails the input guardrail is still a plain 422.
     """
-    settings = get_settings()
+    settings = _settings_for(req)
     try:
         clamp_input(req.question, settings.max_question_length)
     except GuardrailError as exc:
@@ -223,6 +240,7 @@ def _response(result: Any) -> ResearchResponse:
         removed_claims=result.removed_claims,
         citation_coverage=round(result.citation_coverage, 4),
         support_rate=round(_support_rate(result.report, result.evidence), 4),
+        keyless=result.keyless,
     )
 
 
@@ -251,8 +269,10 @@ def get_run(run_id: str) -> dict[str, Any]:
 
 
 @app.get("/metrics")
-def metrics() -> dict[str, Any]:
-    return aggregate(get_settings().traces_dir)
+def metrics(mode: Literal["real", "keyless"] | None = None) -> dict[str, Any]:
+    """Aggregate metrics over every run, or over the real-mode or keyless ones."""
+    keyless = None if mode is None else mode == "keyless"
+    return aggregate(get_settings().traces_dir, keyless=keyless)
 
 
 @app.get("/corpus")
