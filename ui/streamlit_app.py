@@ -102,12 +102,21 @@ ss.setdefault("budget", 60_000)
 ss.setdefault("critic", True)
 ss.setdefault("approval", False)
 
-# Streamlit discards a widget's value when the next page doesn't render that same
-# widget, so switching Research -> Critic A/B emptied the question and reset the
-# run settings. Re-assigning the keys on every run keeps them as plain session
-# state that survives page switches (Streamlit's documented pattern).
-for _key in ("q", "max_iter", "budget", "critic", "approval"):
-    ss[_key] = ss[_key]
+
+# Streamlit discards a widget's value when a page run doesn't draw that widget, so
+# the settings and the question live in keys no widget owns. Re-assigning a
+# widget's own key on every run (the other documented fix) kept them across page
+# switches, but still lost them all when History -> View -> another page came
+# faster than History could redraw.
+def _kept(key: str) -> dict[str, Any]:
+    """Widget arguments for a setting kept in ``ss[key]``: the widget gets ``_key``,
+    filled from the setting before it is drawn and copied back when it changes."""
+    ss["_" + key] = ss[key]
+    return {"key": "_" + key, "on_change": _keep, "args": (key,)}
+
+
+def _keep(key: str) -> None:
+    ss[key] = ss["_" + key]
 
 
 
@@ -810,11 +819,11 @@ def settings_sidebar(show_critic: bool = True,
         if m["real"]:
             iter_help += " Each rewrite is one more writer and critic call."
         if max_iter > 0:
-            st.slider("Max critic iterations", 0, max_iter, key="max_iter", help=iter_help)
+            st.slider("Max critic iterations", 0, max_iter, help=iter_help, **_kept("max_iter"))
         else:
             st.caption("Max critic iterations: 0 (set by the server)")
         st.number_input("Token budget", min_value=min(100, max_budget), max_value=max_budget,
-                        step=1_000, key="budget",
+                        step=1_000, **_kept("budget"),
                         help="The most tokens one run may use. At the limit the run stops "
                              "cleanly and the report is marked partial."
                              + (" Embedding tokens count too." if m["meaning"] else ""))
@@ -822,14 +831,14 @@ def settings_sidebar(show_critic: bool = True,
             st.caption(f"This server allows up to {max_budget:,} tokens and {max_iter} "
                        "critic iteration(s) per run (its TOKEN_BUDGET and MAX_ITERATIONS).")
         if show_critic:
-            st.toggle("Enable verifying critic", key="critic",
+            st.toggle("Enable verifying critic", **_kept("critic"),
                       help=("OFF skips the check: faster and cheaper, but a claim its "
                             "evidence doesn't support stays in the report. Citations to "
                             "ungathered sources are still removed." if m["real"] else
                             "OFF = the critic-OFF arm of the A/B: the keyless writer's "
                             "planted uncited claim survives, so coverage drops."))
         if show_approval:
-            st.checkbox("Require human approval", key="approval",
+            st.checkbox("Require human approval", **_kept("approval"),
                         help="Pause each run before its final step: you read the draft, "
                              "then approve it (the report is released) or reject it.")
         st.divider()
@@ -1066,7 +1075,7 @@ def page_research() -> None:
                  "keyless demo: rule-based agents over a bundled corpus, offline and free. "
                  "Every source is real; none are fabricated.")
     hero("Agentic Research &amp; Report Assistant", intro)
-    st.text_input("Research question", key="q")
+    st.text_input("Research question", **_kept("q"))
     if m["web"]:
         hint = "Try an example, or ask about any topic:"
     elif m["own_docs"]:
@@ -1120,7 +1129,7 @@ def page_compare() -> None:
              "Run the same question with the critic <b>on</b> and <b>off</b>, side by "
              "side — a live demonstration of the claim-removal mechanism (keyless mode "
              "plants one uncited claim for the critic to catch).")
-    st.text_input("Research question", key="q")
+    st.text_input("Research question", **_kept("q"))
     if st.button("Run A/B comparison", type="primary", use_container_width=True,
                  disabled="job" in ss) and "job" not in ss:  # not on_click: see page_research
         base = {**_base_payload(), "require_approval": False}  # a measurement, not a release
