@@ -222,16 +222,19 @@ in-process backend** (same functions, called directly), so the whole UI can also
 deploy as a **single self-contained app** — see [Deploy a demo](#deploy-a-demo-free).
 Five pages (native `st.navigation`, shared state across pages):
 
-- **Research** — ask a question (or pick an example chip); read the cited report in
+- **Research** — ask a question (or pick an example chip); a progress bar shows the step
+  the run is on and how far along it is. Read the cited report in
   six tabs: *Report* (+ Markdown/JSON download), *Evidence & sources* (each gathered
   passage, and exactly which claim cites it), *Corpus* (which docs were used vs not
   retrieved), *Step timeline* (a colour-coded per-node trace), *Agent graph*, and
-  *Run data*.
+  *Run data*. With *Require human approval* ticked, the run pauses before its final
+  step and shows **Approve** / **Reject** above the draft.
 - **Critic A/B** — one click runs the same question with the critic **ON and OFF** and
   shows the citation-coverage / support delta side by side — a live demonstration of the
   removal mechanism (keyless +0.17 is by construction; ~0 with a real model —
   [see the caveat](#critic-ab--and-what-it-does-not-prove)).
-- **History** — a browsable table of past runs; reopen any into all six tabs.
+- **History** — a browsable table of past runs; reopen any into all six tabs (a run
+  still waiting for approval can be approved or rejected there too).
 - **Observability** — the aggregate dashboard (total runs, avg cost, avg/p95 latency,
   avg coverage) fed by `GET /metrics`.
 - **Guide** — an in-app explainer in seven tabs (getting started, real mode, reading a report,
@@ -536,7 +539,8 @@ claimed here** — the track is shipped and tested, but its benefit is unmeasure
 - Consuming *external* MCP servers as tools inside the researcher (the server side is now shipped —
   see [Use it from Claude Desktop](#use-it-from-claude-desktop-mcp-server); the client side would
   make `search`/`fetch` pluggable with any third-party MCP tool).
-- Streaming step events to the UI (the cost/observability dashboard is now shipped).
+- Streaming each step to the UI as it happens, so the timeline and the agent graph fill in live
+  (a run already streams its current stage and a percentage to the progress bar).
 - LLM-as-judge faithfulness wired in for the real path (scaffolding + import guard present).
 
 ## About
