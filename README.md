@@ -2,7 +2,10 @@
 
 **▶ [Try the live demo](https://agentic-research-assistant-ra3rebpqgkqvyyw5wryrma.streamlit.app/)** — cited research reports right in your browser · keyless mode · no signup.
 
+**🎬 [Watch the real-mode demo](https://youtu.be/FlnEkglGr5c)** (3:36) — the same app on GPT-4o-mini and live web search.
+
 [![Live demo](https://img.shields.io/badge/Live%20demo-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://agentic-research-assistant-ra3rebpqgkqvyyw5wryrma.streamlit.app/)
+[![Demo video](https://img.shields.io/badge/Demo%20video-YouTube-FF0000?logo=youtube&logoColor=white)](https://youtu.be/FlnEkglGr5c)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
 [![CI](https://github.com/Baron197/agentic-research-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/Baron197/agentic-research-assistant/actions/workflows/ci.yml)
 [![tests](https://img.shields.io/badge/tests-165%20passing-brightgreen.svg)](#testing--ci)
@@ -131,7 +134,8 @@ offline and deterministically.
 The keyless demo runs on fakes, but the **same pipeline does real research** — two
 independent switches you can use separately or together. For the full step-by-step
 (install, keys, running on Windows without `make`, and deploying safely with your
-own keys) see **[REAL_MODE.md](REAL_MODE.md)**.
+own keys) see **[REAL_MODE.md](REAL_MODE.md)**. To see a real-mode run first, watch the
+**[demo video](https://youtu.be/FlnEkglGr5c)** (3:36).
 
 ### Research the live web
 
