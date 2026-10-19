@@ -1,0 +1,469 @@
+{
+  "run_id": "e2450b4c6720",
+  "question": "What is reranking and why are cross-encoders used?",
+  "status": "complete",
+  "report": {
+    "question": "What is reranking and why are cross-encoders used?",
+    "summary": "Reranking is a crucial step in information retrieval that enhances the precision of search results by reordering a set of candidate documents based on their relevance to a query. Cross-encoders are preferred for reranking tasks due to their ability to evaluate the query and document pairs together, providing more accurate relevance scores.",
+    "sections": [
+      {
+        "heading": "Definition of Reranking",
+        "claims": [
+          {
+            "id": "C1",
+            "text": "Reranking is defined as the precision step that follows the recall step in information retrieval, where a rough first set of results is reordered using a more accurate model to ensure the best matches for a query are prioritized.",
+            "evidence_ids": [
+              "E1"
+            ]
+          },
+          {
+            "id": "C2",
+            "text": "Reranking is the second stage of a two-stage retrieval pipeline, where a slower and more accurate model rescoring each query and document pair together improves the precision of the final result set.",
+            "evidence_ids": [
+              "E2"
+            ]
+          }
+        ]
+      },
+      {
+        "heading": "Role of Cross-Encoders in Reranking",
+        "claims": [
+          {
+            "id": "C3",
+            "text": "Cross-encoders have become the standard machinery for reranking since the introduction of models like BERT, as they allow for the simultaneous encoding of query and document pairs, leading to more accurate relevance scoring.",
+            "evidence_ids": [
+              "E7"
+            ]
+          },
+          {
+            "id": "C4",
+            "text": "Cross-encoders are preferred for reranking tasks because they provide higher accuracy, especially in scenarios where subtle differences in wording can significantly impact the meaning, such as in medical or legal documents.",
+            "evidence_ids": [
+              "E8"
+            ]
+          }
+        ]
+      },
+      {
+        "heading": "Applications of Reranking and Cross-Encoders",
+        "claims": [
+          {
+            "id": "C5",
+            "text": "Reranking models, such as the NVIDIA NeMo Retriever Reranking NIM, play a key role in retrieval processes by reordering citations based on their relevance to a query, which is essential for applications that involve multiple datastores with different similarity algorithms.",
+            "evidence_ids": [
+              "E9"
+            ]
+          }
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "n": 1,
+        "evidence_id": "E1",
+        "title": "Reranking Meaning & Definition | Brave",
+        "url": "https://brave.com/search/api/glossary/reranking"
+      },
+      {
+        "n": 2,
+        "evidence_id": "E2",
+        "title": "Reranking: what it is and how it works in search | Sanity",
+        "url": "https://www.sanity.io/glossary/reranking"
+      },
+      {
+        "n": 3,
+        "evidence_id": "E7",
+        "title": "A Thorough Comparison of Cross-Encoders and LLMs for Reranking SPLADE",
+        "url": "https://arxiv.org/html/2403.10407v1"
+      },
+      {
+        "n": 4,
+        "evidence_id": "E8",
+        "title": "Sentence Embeddings. Cross-encoders and Re-ranking \u2013 hackerllama",
+        "url": "https://osanseviero.github.io/hackerllama/blog/posts/sentence_embeddings2"
+      },
+      {
+        "n": 5,
+        "evidence_id": "E9",
+        "title": "Overview of NVIDIA NeMo Retriever Reranking NIM \u2014 NeMo Retriever Reranking NIM",
+        "url": "https://docs.nvidia.com/nim/nemo-retriever/reranking/2.0/overview.html"
+      }
+    ],
+    "partial": false
+  },
+  "iterations": 0,
+  "tool_calls": 18,
+  "tokens": 19434,
+  "usd": 0.001534,
+  "latency_ms": 29323.306,
+  "dropped_claims": 0,
+  "removed_claims": [],
+  "trace": [
+    {
+      "node": "planner",
+      "tool": null,
+      "input_summary": "What is reranking and why are cross-encoders used?",
+      "output_summary": "5 sub-questions",
+      "tokens": 384,
+      "usd": 0.000187,
+      "ms": 5545.448
+    },
+    {
+      "node": "researcher",
+      "tool": "search",
+      "input_summary": "definition of reranking",
+      "output_summary": "5 results",
+      "tokens": 5,
+      "usd": 0.0,
+      "ms": 0.012
+    },
+    {
+      "node": "researcher",
+      "tool": "fetch",
+      "input_summary": "https://brave.com/search/api/glossary/reranking",
+      "output_summary": "Reranking is the precision step that comes after the recall step. In short: rera",
+      "tokens": 155,
+      "usd": 0.0,
+      "ms": 0.031
+    },
+    {
+      "node": "researcher",
+      "tool": "rank",
+      "input_summary": "12 passages \u00b7 text-embedding-3-small",
+      "output_summary": "best passage by meaning",
+      "tokens": 1319,
+      "usd": 2.6e-05,
+      "ms": 0.009
+    },
+    {
+      "node": "researcher",
+      "tool": "fetch",
+      "input_summary": "https://www.sanity.io/glossary/reranking",
+      "output_summary": "Reranking definition Reranking is the second stage of a two-stage retrieval pipe",
+      "tokens": 158,
+      "usd": 0.0,
+      "ms": 0.017
+    },
+    {
+      "node": "researcher",
+      "tool": "rank",
+      "input_summary": "12 passages \u00b7 text-embedding-3-small",
+      "output_summary": "best passage by meaning",
+      "tokens": 1164,
+      "usd": 2.3e-05,
+      "ms": 0.004
+    },
+    {
+      "node": "researcher",
+      "tool": "search",
+      "input_summary": "reranking techniques",
+      "output_summary": "5 results",
+      "tokens": 5,
+      "usd": 0.0,
+      "ms": 0.002
+    },
+    {
+      "node": "researcher",
+      "tool": "fetch",
+      "input_summary": "https://developer.nvidia.com/blog/enhancing-rag-pipelines-with-re-ranking",
+      "output_summary": "Re-ranking also plays a crucial role in optimizing retrieval-augmented generatio",
+      "tokens": 157,
+      "usd": 0.0,
+      "ms": 0.023
+    },
+    {
+      "node": "researcher",
+      "tool": "rank",
+      "input_summary": "12 passages \u00b7 text-embedding-3-small",
+      "output_summary": "best passage by meaning",
+      "tokens": 1463,
+      "usd": 2.9e-05,
+      "ms": 0.003
+    },
+    {
+      "node": "researcher",
+      "tool": "fetch",
+      "input_summary": "https://pub.towardsai.net/5-reranking-techniques-in-rag-from-fast-retrieval-to-accurate-context-16f80a919c4e",
+      "output_summary": "fetch failed: Client error '403 Forbidden' for url 'https://pub.towardsai.net/5-reranking-techniques-in-rag-from-fast-retrieval-to-accurate-context-16f80a919c4e'\nFor more information check: https://de",
+      "tokens": 1,
+      "usd": 0.0,
+      "ms": 0.007
+    },
+    {
+      "node": "researcher",
+      "tool": "fetch",
+      "input_summary": "https://arxiv.org/html/2512.16236v1",
+      "output_summary": "This study aims to provide scholars and practitioners with a valuable guide for ",
+      "tokens": 135,
+      "usd": 0.0,
+      "ms": 302.533
+    },
+    {
+      "node": "researcher",
+      "tool": "rank",
+      "input_summary": "12 passages \u00b7 text-embedding-3-small",
+      "output_summary": "best passage by meaning",
+      "tokens": 1120,
+      "usd": 2.2e-05,
+      "ms": 0.012
+    },
+    {
+      "node": "researcher",
+      "tool": "search",
+      "input_summary": "cross-encoder definition",
+      "output_summary": "5 results",
+      "tokens": 6,
+      "usd": 0.0,
+      "ms": 0.004
+    },
+    {
+      "node": "researcher",
+      "tool": "fetch",
+      "input_summary": "https://zeroentropy.dev/articles/biencoder-vs-crossencoder",
+      "output_summary": "These correspond to two fundamentally different transformer architectures \u2014 bi-e",
+      "tokens": 146,
+      "usd": 0.0,
+      "ms": 0.026
+    },
+    {
+      "node": "researcher",
+      "tool": "rank",
+      "input_summary": "12 passages \u00b7 text-embedding-3-small",
+      "output_summary": "best passage by meaning",
+      "tokens": 1029,
+      "usd": 2.1e-05,
+      "ms": 0.004
+    },
+    {
+      "node": "researcher",
+      "tool": "fetch",
+      "input_summary": "https://www.youtube.com/watch?v=xzJ1NxEoZhM",
+      "output_summary": "fetch failed: video page, no article text: 'https://www.youtube.com/watch?v=xzJ1NxEoZhM'",
+      "tokens": 1,
+      "usd": 0.0,
+      "ms": 0.007
+    },
+    {
+      "node": "researcher",
+      "tool": "fetch",
+      "input_summary": "https://www.sbert.net/examples/cross_encoder/applications/README.html",
+      "output_summary": "For more details on combing Bi- and Cross-Encoders, see Application - Informatio",
+      "tokens": 46,
+      "usd": 0.0,
+      "ms": 463.614
+    },
+    {
+      "node": "researcher",
+      "tool": "rank",
+      "input_summary": "12 passages \u00b7 text-embedding-3-small",
+      "output_summary": "best passage by meaning",
+      "tokens": 821,
+      "usd": 1.6e-05,
+      "ms": 0.011
+    },
+    {
+      "node": "researcher",
+      "tool": "search",
+      "input_summary": "cross-encoders in reranking",
+      "output_summary": "5 results",
+      "tokens": 6,
+      "usd": 0.0,
+      "ms": 0.021
+    },
+    {
+      "node": "researcher",
+      "tool": "fetch",
+      "input_summary": "https://arxiv.org/html/2403.10407v1",
+      "output_summary": "Traditional reranking methods used to rely on manually defined features, and emp",
+      "tokens": 146,
+      "usd": 0.0,
+      "ms": 0.025
+    },
+    {
+      "node": "researcher",
+      "tool": "rank",
+      "input_summary": "12 passages \u00b7 text-embedding-3-small",
+      "output_summary": "best passage by meaning",
+      "tokens": 1311,
+      "usd": 2.6e-05,
+      "ms": 0.006
+    },
+    {
+      "node": "researcher",
+      "tool": "fetch",
+      "input_summary": "https://towardsdatascience.com/advanced-rag-retrieval-cross-encoders-reranking",
+      "output_summary": "fetch failed: Client error '403 Forbidden' for url 'https://towardsdatascience.com/advanced-rag-retrieval-cross-encoders-reranking'\nFor more information check: https://developer.mozilla.org/en-US/docs",
+      "tokens": 1,
+      "usd": 0.0,
+      "ms": 0.004
+    },
+    {
+      "node": "researcher",
+      "tool": "fetch",
+      "input_summary": "https://osanseviero.github.io/hackerllama/blog/posts/sentence_embeddings2",
+      "output_summary": "In those cases, an option is first to use a bi-encoder to reduce the number of c",
+      "tokens": 163,
+      "usd": 0.0,
+      "ms": 702.109
+    },
+    {
+      "node": "researcher",
+      "tool": "rank",
+      "input_summary": "12 passages \u00b7 text-embedding-3-small",
+      "output_summary": "best passage by meaning",
+      "tokens": 1060,
+      "usd": 2.1e-05,
+      "ms": 0.009
+    },
+    {
+      "node": "researcher",
+      "tool": "search",
+      "input_summary": "applications of reranking",
+      "output_summary": "5 results",
+      "tokens": 6,
+      "usd": 0.0,
+      "ms": 0.004
+    },
+    {
+      "node": "researcher",
+      "tool": "fetch",
+      "input_summary": "https://docs.nvidia.com/nim/nemo-retriever/reranking/2.0/overview.html",
+      "output_summary": "The following diagram shows how the NeMo Retriever Reranking API can help a RAG-",
+      "tokens": 245,
+      "usd": 0.0,
+      "ms": 0.018
+    },
+    {
+      "node": "researcher",
+      "tool": "rank",
+      "input_summary": "12 passages \u00b7 text-embedding-3-small",
+      "output_summary": "best passage by meaning",
+      "tokens": 1179,
+      "usd": 2.4e-05,
+      "ms": 0.003
+    },
+    {
+      "node": "researcher",
+      "tool": "fetch",
+      "input_summary": "https://docs.nvidia.com/nim/nemo-retriever/reranking/latest/overview.html",
+      "output_summary": "The following diagram shows how the NeMo Retriever Reranking API can help a RAG-",
+      "tokens": 245,
+      "usd": 0.0,
+      "ms": 0.014
+    },
+    {
+      "node": "researcher",
+      "tool": "rank",
+      "input_summary": "12 passages \u00b7 text-embedding-3-small",
+      "output_summary": "best passage by meaning",
+      "tokens": 1179,
+      "usd": 2.4e-05,
+      "ms": 0.002
+    },
+    {
+      "node": "writer",
+      "tool": null,
+      "input_summary": "10 evidence items",
+      "output_summary": "5 claims in 3 sections",
+      "tokens": 2862,
+      "usd": 0.000654,
+      "ms": 6052.219
+    },
+    {
+      "node": "critic",
+      "tool": null,
+      "input_summary": "5 claims",
+      "output_summary": "verdict=accept, unsupported=0",
+      "tokens": 2916,
+      "usd": 0.000461,
+      "ms": 1114.03
+    },
+    {
+      "node": "finalizer",
+      "tool": null,
+      "input_summary": "5 claims, 10 evidence",
+      "output_summary": "status=complete, dropped=0, sources=5",
+      "tokens": 0,
+      "usd": 0.0,
+      "ms": 0.129
+    }
+  ],
+  "evidence": [
+    {
+      "id": "E1",
+      "claim_hint": "What is the definition of reranking in information retrieval?",
+      "source_title": "Reranking Meaning & Definition | Brave",
+      "source_url": "https://brave.com/search/api/glossary/reranking",
+      "snippet": "Reranking is the precision step that comes after the recall step. In short: reranking takes a rough first set of results and reorders them with a more accurate model, so the best matches for a query rise to the top. How reranking works Reranking is the second half of a two-stage retrieval pipeline: - First-stage retrieval: A fast method such as keyword search, vector search, or hybrid search returns a broad set of candidates, often the top 50 or 100, favoring recall over precision. - Scoring: A reranking model, often a cross-encoder, reads the query and each candidate document together and outputs a relevance score."
+    },
+    {
+      "id": "E2",
+      "claim_hint": "What is the definition of reranking in information retrieval?",
+      "source_title": "Reranking: what it is and how it works in search | Sanity",
+      "source_url": "https://www.sanity.io/glossary/reranking",
+      "snippet": "Reranking definition Reranking is the second stage of a two-stage retrieval pipeline: after a fast first-stage retriever returns a candidate set of documents, a slower and more accurate model rescores each query and document pair together and reorders the candidates so the most relevant ones end up at the top. It improves the precision of the final result set without requiring the first-stage retriever to be more accurate. Reranking in search is the pass that happens after retrieval: a model looks at the query and each candidate document together, scores the pair, and reorders the shortlist so the best answers sit at the top."
+    },
+    {
+      "id": "E3",
+      "claim_hint": "What are the main techniques used in reranking?",
+      "source_title": "Enhancing RAG Pipelines with Re-Ranking | NVIDIA Technical Blog",
+      "source_url": "https://developer.nvidia.com/blog/enhancing-rag-pipelines-with-re-ranking",
+      "snippet": "Re-ranking also plays a crucial role in optimizing retrieval-augmented generation (RAG) pipelines, where it ensures that large language models (LLMs) work with the most pertinent and high-quality information. This dual benefit of re-ranking\u2014enhancing both semantic search and RAG pipelines\u2014makes it an indispensable tool for enterprises aiming to deliver superior search experiences and maintain a competitive edge in the digital marketplace. In this post, I use the NVIDIA NeMo Retriever reranking NIM. It\u2019s a transformer encoder: a LoRA fine-tuned version of Mistral-7B that uses only the first 16 layers for higher throughput."
+    },
+    {
+      "id": "E4",
+      "claim_hint": "What are the main techniques used in reranking?",
+      "source_title": "The Evolution of Reranking Models in Information Retrieval: From Heuristic Methods to Large Language Models",
+      "source_url": "https://arxiv.org/html/2512.16236v1",
+      "snippet": "This study aims to provide scholars and practitioners with a valuable guide for navigating this ever-evolving subject by compiling significant advancements and empirical findings throughout the reranking timeline. 2 Background Ranking approaches, which form the basis for many reranking techniques, can broadly be categorized based on their supervision strategies and how they process documents during training and scoring: pointwise, pairwise, and listwise. Pointwise approaches consider a single document at a time within the loss function."
+    },
+    {
+      "id": "E5",
+      "claim_hint": "What is a cross-encoder and how does it differ from other models?",
+      "source_title": "Bi-Encoders vs Cross-Encoders \u2014 ZeroEntropy Blog",
+      "source_url": "https://zeroentropy.dev/articles/biencoder-vs-crossencoder",
+      "snippet": "These correspond to two fundamentally different transformer architectures \u2014 bi-encoders and cross-encoders \u2014 with different strengths, different costs, and a well-understood division of labor in production. This post covers what each architecture does, where each one breaks, and why the combination outperforms either alone. Bi-Encoders and Cross-Encoders A bi-encoder encodes query and document independently into vectors, then compares them via cosine similarity. This is what embedding models do \u2014 OpenAI\u2019s text-embedding-3-large, Cohere\u2019s embed-v4.0, voyage-4, and our own zembed-1."
+    },
+    {
+      "id": "E6",
+      "claim_hint": "What is a cross-encoder and how does it differ from other models?",
+      "source_title": "Cross-Encoders \u2014 Sentence Transformers documentation",
+      "source_url": "https://www.sbert.net/examples/cross_encoder/applications/README.html",
+      "snippet": "For more details on combing Bi- and Cross-Encoders, see Application - Information Retrieval. Training Cross-Encoders See Cross-Encoder Training how to train your own Cross-Encoder models."
+    },
+    {
+      "id": "E7",
+      "claim_hint": "Why are cross-encoders preferred for reranking tasks?",
+      "source_title": "A Thorough Comparison of Cross-Encoders and LLMs for Reranking SPLADE",
+      "source_url": "https://arxiv.org/html/2403.10407v1",
+      "snippet": "Traditional reranking methods used to rely on manually defined features, and employed specific learning-to-rank losses (Liu, 2009). Since the advent of models like BERT (Devlin et al., 2019), cross-encoders have become the standard reranking \u201cmachinery\u201d (Nogueira and Cho, 2020; Gao et al., 2021a). More recent architectures have gradually been tested, including encoder-decoder (Pradeep et al., 2021; Zhuang et al., 2023b; Zhuang et al., 2023a) or decoder-only models (Ma et al., 2023). More recently, Large Language Models (LLMs) have been shown to be effective zero-shot rerankers."
+    },
+    {
+      "id": "E8",
+      "claim_hint": "Why are cross-encoders preferred for reranking tasks?",
+      "source_title": "Sentence Embeddings. Cross-encoders and Re-ranking \u2013 hackerllama",
+      "source_url": "https://osanseviero.github.io/hackerllama/blog/posts/sentence_embeddings2",
+      "snippet": "In those cases, an option is first to use a bi-encoder to reduce the number of candidates (i.e., get the top 20 most relevant examples) and then use a cross-encoder to get the final result. This is called re-ranking and is a common technique in information retrieval; we\u2019ll learn more about it later in this blog post! Given that the cross-encoder is more accurate, it\u2019s also a good option for tasks where subtle differences matter, such as medical or legal documents where a slight difference in wording can change the sentence\u2019s meaning. Cross-encoders As mentioned, cross-encoders encode two texts simultaneously and then output a classification label."
+    },
+    {
+      "id": "E9",
+      "claim_hint": "What are the applications of reranking and cross-encoders in real-world scenarios?",
+      "source_title": "Overview of NVIDIA NeMo Retriever Reranking NIM \u2014 NeMo Retriever Reranking NIM",
+      "source_url": "https://docs.nvidia.com/nim/nemo-retriever/reranking/2.0/overview.html",
+      "snippet": "The following diagram shows how the NeMo Retriever Reranking API can help a RAG-based application find relevant data based upon Q&A for an Enterprise purpose. NeMo Retriever Reranking NIM# NVIDIA NeMo Retriever Reranking NIM (Reranking NIM) reorders citations by how well they match a query. This is a key step in the retrieval process, especially when the retrieval pipeline involves citations from different datastores that each have their own algorithms for measuring similarity. Architecture# Each NeMo Retriever Reranking NIM packages a reranking model into a Docker container image and exposes ranking APIs that can be integrated into retrieval and RAG pipelines. Text reranking models score a text query against text passages. The VLM reranking model, nvidia/llama-nemotron-rerank-vl-1b-v2, scores a text query against text-only, image-only, or text-and-image passages, so applications can rerank document pages, slides, screenshots, and passages that include visual evidence."
+    },
+    {
+      "id": "E10",
+      "claim_hint": "What are the applications of reranking and cross-encoders in real-world scenarios?",
+      "source_title": "Overview of NVIDIA NeMo Retriever Reranking NIM \u2014 NeMo Retriever Reranking NIM",
+      "source_url": "https://docs.nvidia.com/nim/nemo-retriever/reranking/latest/overview.html",
+      "snippet": "The following diagram shows how the NeMo Retriever Reranking API can help a RAG-based application find relevant data based upon Q&A for an Enterprise purpose. NeMo Retriever Reranking NIM# NVIDIA NeMo Retriever Reranking NIM (Reranking NIM) reorders citations by how well they match a query. This is a key step in the retrieval process, especially when the retrieval pipeline involves citations from different datastores that each have their own algorithms for measuring similarity. Architecture# Each NeMo Retriever Reranking NIM packages a reranking model into a Docker container image and exposes ranking APIs that can be integrated into retrieval and RAG pipelines. Text reranking models score a text query against text passages. The VLM reranking model, nvidia/llama-nemotron-rerank-vl-1b-v2, scores a text query against text-only, image-only, or text-and-image passages, so applications can rerank document pages, slides, screenshots, and passages that include visual evidence."
+    }
+  ],
+  "created_at": "2026-10-19T10:00:56.373545+00:00",
+  "keyless": false,
+  "markdown": "# Research Report\n\n**Question:** What is reranking and why are cross-encoders used?\n\n## Executive Summary\n\nReranking is a crucial step in information retrieval that enhances the precision of search results by reordering a set of candidate documents based on their relevance to a query. Cross-encoders are preferred for reranking tasks due to their ability to evaluate the query and document pairs together, providing more accurate relevance scores.\n\n## Definition of Reranking\n\n- Reranking is defined as the precision step that follows the recall step in information retrieval, where a rough first set of results is reordered using a more accurate model to ensure the best matches for a query are prioritized. [1]\n- Reranking is the second stage of a two-stage retrieval pipeline, where a slower and more accurate model rescoring each query and document pair together improves the precision of the final result set. [2]\n\n## Role of Cross-Encoders in Reranking\n\n- Cross-encoders have become the standard machinery for reranking since the introduction of models like BERT, as they allow for the simultaneous encoding of query and document pairs, leading to more accurate relevance scoring. [3]\n- Cross-encoders are preferred for reranking tasks because they provide higher accuracy, especially in scenarios where subtle differences in wording can significantly impact the meaning, such as in medical or legal documents. [4]\n\n## Applications of Reranking and Cross-Encoders\n\n- Reranking models, such as the NVIDIA NeMo Retriever Reranking NIM, play a key role in retrieval processes by reordering citations based on their relevance to a query, which is essential for applications that involve multiple datastores with different similarity algorithms. [5]\n\n## Sources\n\n1. Reranking Meaning & Definition | Brave \u2014 <https://brave.com/search/api/glossary/reranking>\n2. Reranking: what it is and how it works in search | Sanity \u2014 <https://www.sanity.io/glossary/reranking>\n3. A Thorough Comparison of Cross-Encoders and LLMs for Reranking SPLADE \u2014 <https://arxiv.org/html/2403.10407v1>\n4. Sentence Embeddings. Cross-encoders and Re-ranking \u2013 hackerllama \u2014 <https://osanseviero.github.io/hackerllama/blog/posts/sentence_embeddings2>\n5. Overview of NVIDIA NeMo Retriever Reranking NIM \u2014 NeMo Retriever Reranking NIM \u2014 <https://docs.nvidia.com/nim/nemo-retriever/reranking/2.0/overview.html>\n",
+  "citation_coverage": 1.0,
+  "support_rate": 1.0,
+  "approval_pending": false
+}

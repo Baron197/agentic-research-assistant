@@ -31,6 +31,7 @@ import re
 import threading
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -686,6 +687,36 @@ def load_run(run_id: str) -> None:
         ss.error = f"Could not load run {run_id}."
 
 
+# Runs recorded on a real-mode server and shipped with the code, so the keyless demo
+# can show what a paid run produces. Each file is a GET /runs/{id} response (what
+# History -> View loads), so it opens like any run. They are not in the run index:
+# the demo's own runs, and its Observability averages, stay keyless.
+REAL_RUNS_DIR = Path(__file__).resolve().parents[1] / "data" / "real_runs"
+
+
+@st.cache_data(show_spinner=False)
+def real_examples() -> list[dict[str, Any]]:
+    """The shipped real-mode runs, newest first; a file that can't be read is skipped."""
+    runs = []
+    for path in sorted(REAL_RUNS_DIR.glob("run_*.json")):
+        try:
+            d = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(d, dict) and d.get("keyless") is False and d.get("run_id") and d.get("markdown"):
+            runs.append(d)
+    return sorted(runs, key=lambda d: str(d.get("created_at", "")), reverse=True)
+
+
+def load_example(run_id: str) -> None:
+    """Open a shipped real-mode run in the view, as History -> View does."""
+    d = next((r for r in real_examples() if r["run_id"] == run_id), None)
+    if d:
+        ss.result, ss.detail, ss.error = d, d, None
+    else:
+        ss.error = f"Could not load example run {run_id}."
+
+
 def pick_example(text: str) -> None:
     ss.q = text.split("  (")[0]  # drop the parenthetical hint
 
@@ -1184,9 +1215,12 @@ def page_research() -> None:
         st.info(md("Enter a question (or pick an example) and click **Run research**. A "
                    f"run takes {typical_run(m)}. New to real mode? See **Guide → Real mode**."))
     else:
+        examples = ("" if m["switched"] or not real_examples() else
+                    " To see what real mode produces, open **History**: it has runs recorded "
+                    "with GPT-4o-mini and live web search.")
         st.info("Enter a question (or pick an example) and click **Run research**. "
                 "To see the critic remove a planted uncited claim, open the **Critic A/B** "
-                "page in the sidebar.")
+                f"page in the sidebar.{examples}")
 
 
 def page_compare() -> None:
@@ -1243,18 +1277,8 @@ def _mode_label(row: dict[str, Any]) -> str:
     return {True: "keyless", False: "real"}.get(row.get("keyless"), "—")
 
 
-def page_history() -> None:
-    health = api_health()
-    sidebar_health(health)
-    hero("Run history",
-         "Browse and reopen any past run — full report, evidence, and trace.")
-    runs = (api_get("/runs?limit=50") or {}).get("runs", [])
-    if not runs:
-        st.info("No runs recorded yet. Run a research query to populate history.")
-        return
-    shared = (" Runs are stored on this server: anyone who can open this app can see them."
-              if ui_mode(health)["real"] else "")
-    st.caption(f"{len(runs)} most recent run(s). Click **View** to reopen one below.{shared}")
+def _runs_table(runs: list[dict[str, Any]], on_view: Callable[[str], None], key: str) -> None:
+    """One row per run, each with a View button that opens it below."""
     widths = [5.2, 1.4, 2, 1.6, 1.6, 1.6]
     head = st.columns(widths)
     for c, label in zip(head, ["Question", "Mode", "Status", "Coverage", "Tokens", ""],
@@ -1269,8 +1293,35 @@ def page_history() -> None:
         cov = it.get("citation_coverage")
         c[3].write(f"{cov:.0%}" if isinstance(cov, (int, float)) else "—")
         c[4].write(f"{it.get('tokens', 0):,}")
-        c[5].button("View", key=f"view_{it.get('run_id')}", on_click=load_run,
+        c[5].button("View", key=f"{key}_{it.get('run_id')}", on_click=on_view,
                     args=(it.get("run_id"),), use_container_width=True)
+
+
+def page_history() -> None:
+    health = api_health()
+    sidebar_health(health)
+    hero("Run history",
+         "Browse and reopen any past run — full report, evidence, and trace.")
+    real = ui_mode(health)["real"]
+    examples = [] if real else real_examples()
+    if examples:
+        st.subheader("Real-mode examples")
+        st.caption(f"{len(examples)} run(s) recorded on a real-mode server (GPT-4o-mini and "
+                   "live web search) and shipped with this demo, so you can see what a paid "
+                   "run produces. This demo itself runs keyless. Click **View** to open one.")
+        _runs_table(examples, load_example, "example")
+        st.subheader("Runs on this demo")
+    runs = (api_get("/runs?limit=50") or {}).get("runs", [])
+    if runs:
+        shared = (" Runs are stored on this server: anyone who can open this app can see "
+                  "them." if real else "")
+        st.caption(f"{len(runs)} most recent run(s). Click **View** to reopen one below."
+                   f"{shared}")
+        _runs_table(runs, load_run, "view")
+    else:
+        st.info("No runs recorded yet. Run a research query to populate history.")
+        if not examples:
+            return
 
     if ss.error:
         st.error(plain(ss.error))
@@ -1470,7 +1521,9 @@ def page_guide() -> None:
                 "- **Research** — ask a question and read the cited report (six result tabs).\n"
                 "- **Critic A/B** — run the same question with the critic on and off, side by "
                 "side.\n"
-                "- **History** — browse and reopen any past run.\n"
+                "- **History** — browse and reopen any past run"
+                + (" (and runs recorded in real mode)" if not m["real"] and real_examples()
+                   else "") + ".\n"
                 "- **Observability** — cost / latency / coverage across all runs.\n"
                 "- **Guide** — this page."
             )
@@ -1677,8 +1730,9 @@ def page_guide() -> None:
             "### Where the history is kept\n"
             "Runs are saved by the backend. On a Docker deployment they live in a Docker "
             "volume and survive restarts and updates. On the public demo (Streamlit Community "
-            "Cloud) they live on the app's temporary disk, so **History** and "
-            "**Observability** start empty again whenever the app restarts."
+            "Cloud) they live on the app's temporary disk, so the runs in **History** and "
+            "**Observability** start over whenever the app restarts. The real-mode examples "
+            "in History ship with the code (`data/real_runs/`), so they stay."
         )
 
     with t_eval:

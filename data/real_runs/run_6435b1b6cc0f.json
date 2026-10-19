@@ -1,0 +1,542 @@
+{
+  "run_id": "6435b1b6cc0f",
+  "question": "What is RAG?",
+  "status": "complete",
+  "report": {
+    "question": "What is RAG?",
+    "summary": "Retrieval-Augmented Generation (RAG) is a process that enhances the capabilities of large language models by integrating external authoritative knowledge bases, allowing for more accurate and contextually relevant responses.",
+    "sections": [
+      {
+        "heading": "Definition of RAG",
+        "claims": [
+          {
+            "id": "C1",
+            "text": "RAG stands for Retrieval-Augmented Generation, which is a method that optimizes the output of large language models by referencing external knowledge bases before generating responses.",
+            "evidence_ids": [
+              "E1"
+            ]
+          }
+        ]
+      },
+      {
+        "heading": "Contexts of RAG Usage",
+        "claims": [
+          {
+            "id": "C2",
+            "text": "RAG is commonly used in contexts where the model needs to behave predictably and where the retrieval of information is governed by specific constraints.",
+            "evidence_ids": [
+              "E3",
+              "E4"
+            ]
+          }
+        ]
+      },
+      {
+        "heading": "Key Features of RAG",
+        "claims": [
+          {
+            "id": "C3",
+            "text": "Key features of RAG include the ability to provide current and up-to-date knowledge by relying on external knowledge bases, which helps in generating more accurate responses.",
+            "evidence_ids": [
+              "E5",
+              "E6"
+            ]
+          }
+        ]
+      },
+      {
+        "heading": "Comparison with Similar Concepts",
+        "claims": [
+          {
+            "id": "C4",
+            "text": "RAG differs from fine-tuning in that it uses an organization's internal data to enhance prompt engineering without the need for retraining the model.",
+            "evidence_ids": [
+              "E8"
+            ]
+          }
+        ]
+      },
+      {
+        "heading": "Benefits and Drawbacks of RAG",
+        "claims": [
+          {
+            "id": "C5",
+            "text": "One significant advantage of RAG is its ability to reduce hallucinations in language models by relying on a retrieval system to provide factual and up-to-date information.",
+            "evidence_ids": [
+              "E9"
+            ]
+          },
+          {
+            "id": "C6",
+            "text": "RAG accuracy problems can arise from failures at various stages of the RAG pipeline, particularly when the underlying knowledge base is ungoverned or outdated.",
+            "evidence_ids": [
+              "E10"
+            ]
+          }
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "n": 1,
+        "evidence_id": "E1",
+        "title": "What is RAG? - Retrieval-Augmented Generation AI Explained - AWS",
+        "url": "https://aws.amazon.com/what-is/retrieval-augmented-generation"
+      },
+      {
+        "n": 2,
+        "evidence_id": "E3",
+        "title": "RAG Is Dead. Long Live Context Engineering for LLM Systems",
+        "url": "https://www.callstack.com/blog/rag-is-dead-long-live-context-engineering-for-llm-systems"
+      },
+      {
+        "n": 3,
+        "evidence_id": "E4",
+        "title": "Context Engineering for RAG Agents: Enterprise Guide 2026",
+        "url": "https://atlan.com/know/context-engineering/context-engineering-for-rag-agents"
+      },
+      {
+        "n": 4,
+        "evidence_id": "E5",
+        "title": "5 key features and benefits of retrieval augmented generation (RAG) | The Microsoft Cloud Blog",
+        "url": "https://www.microsoft.com/en-us/microsoft-cloud/blog/2025/02/13/5-key-features-and-benefits-of-retrieval-augmented-generation-rag"
+      },
+      {
+        "n": 5,
+        "evidence_id": "E6",
+        "title": "What is RAG (Retrieval Augmented Generation)? | IBM",
+        "url": "https://www.ibm.com/think/topics/retrieval-augmented-generation"
+      },
+      {
+        "n": 6,
+        "evidence_id": "E8",
+        "title": "RAG vs. Fine-tuning | IBM",
+        "url": "https://www.ibm.com/think/topics/rag-vs-fine-tuning"
+      },
+      {
+        "n": 7,
+        "evidence_id": "E9",
+        "title": "Why and when to use RAG - AI Discussions - DeepLearning.AI",
+        "url": "https://community.deeplearning.ai/t/why-and-when-to-use-rag/682599"
+      },
+      {
+        "n": 8,
+        "evidence_id": "E10",
+        "title": "RAG Accuracy Problems: Why They Happen and How to Fix Them",
+        "url": "https://atlan.com/know/rag-accuracy-problems"
+      }
+    ],
+    "partial": false
+  },
+  "iterations": 0,
+  "tool_calls": 21,
+  "tokens": 15500,
+  "usd": 0.001301,
+  "latency_ms": 31461.71,
+  "dropped_claims": 0,
+  "removed_claims": [],
+  "trace": [
+    {
+      "node": "planner",
+      "tool": null,
+      "input_summary": "What is RAG?",
+      "output_summary": "5 sub-questions",
+      "tokens": 309,
+      "usd": 0.000145,
+      "ms": 5474.549
+    },
+    {
+      "node": "researcher",
+      "tool": "search",
+      "input_summary": "RAG meaning",
+      "output_summary": "5 results",
+      "tokens": 2,
+      "usd": 0.0,
+      "ms": 0.007
+    },
+    {
+      "node": "researcher",
+      "tool": "fetch",
+      "input_summary": "https://aws.amazon.com/what-is/retrieval-augmented-generation",
+      "output_summary": "What is RAG (Retrieval-Augmented Generation)? What is Retrieval-Augmented Genera",
+      "tokens": 169,
+      "usd": 0.0,
+      "ms": 0.04
+    },
+    {
+      "node": "researcher",
+      "tool": "rank",
+      "input_summary": "12 passages \u00b7 text-embedding-3-small",
+      "output_summary": "best passage by meaning",
+      "tokens": 797,
+      "usd": 1.6e-05,
+      "ms": 0.009
+    },
+    {
+      "node": "researcher",
+      "tool": "fetch",
+      "input_summary": "https://www.merriam-webster.com/dictionary/rag",
+      "output_summary": "fetch failed: Client error '403 Forbidden' for url 'https://www.merriam-webster.com/dictionary/rag'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/403",
+      "tokens": 1,
+      "usd": 0.0,
+      "ms": 0.006
+    },
+    {
+      "node": "researcher",
+      "tool": "fetch",
+      "input_summary": "https://www.dictionary.com/browse/rag",
+      "output_summary": "rag 1 American noun - a worthless piece of cloth, especially one that is torn or",
+      "tokens": 38,
+      "usd": 0.0,
+      "ms": 1267.182
+    },
+    {
+      "node": "researcher",
+      "tool": "rank",
+      "input_summary": "12 passages \u00b7 text-embedding-3-small",
+      "output_summary": "best passage by meaning",
+      "tokens": 620,
+      "usd": 1.2e-05,
+      "ms": 0.009
+    },
+    {
+      "node": "researcher",
+      "tool": "search",
+      "input_summary": "RAG usage contexts",
+      "output_summary": "5 results",
+      "tokens": 4,
+      "usd": 0.0,
+      "ms": 0.004
+    },
+    {
+      "node": "researcher",
+      "tool": "fetch",
+      "input_summary": "https://www.callstack.com/blog/rag-is-dead-long-live-context-engineering-for-llm-systems",
+      "output_summary": "When context is well-defined, the model behaves more predictably. That predictab",
+      "tokens": 44,
+      "usd": 0.0,
+      "ms": 0.007
+    },
+    {
+      "node": "researcher",
+      "tool": "rank",
+      "input_summary": "12 passages \u00b7 text-embedding-3-small",
+      "output_summary": "best passage by meaning",
+      "tokens": 810,
+      "usd": 1.6e-05,
+      "ms": 0.003
+    },
+    {
+      "node": "researcher",
+      "tool": "fetch",
+      "input_summary": "https://atlan.com/know/context-engineering/context-engineering-for-rag-agents",
+      "output_summary": "A naive RAG system trusts the index. A context-engineered RAG system treats retr",
+      "tokens": 296,
+      "usd": 0.0,
+      "ms": 0.035
+    },
+    {
+      "node": "researcher",
+      "tool": "rank",
+      "input_summary": "12 passages \u00b7 text-embedding-3-small",
+      "output_summary": "best passage by meaning",
+      "tokens": 1205,
+      "usd": 2.4e-05,
+      "ms": 0.003
+    },
+    {
+      "node": "researcher",
+      "tool": "search",
+      "input_summary": "RAG features",
+      "output_summary": "5 results",
+      "tokens": 3,
+      "usd": 0.0,
+      "ms": 0.002
+    },
+    {
+      "node": "researcher",
+      "tool": "fetch",
+      "input_summary": "https://www.microsoft.com/en-us/microsoft-cloud/blog/2025/02/13/5-key-features-and-benefits-of-retrieval-augmented-generation-rag",
+      "output_summary": "Key features and benefits of RAG Here are five key features and benefits that wi",
+      "tokens": 67,
+      "usd": 0.0,
+      "ms": 0.008
+    },
+    {
+      "node": "researcher",
+      "tool": "rank",
+      "input_summary": "12 passages \u00b7 text-embedding-3-small",
+      "output_summary": "best passage by meaning",
+      "tokens": 877,
+      "usd": 1.8e-05,
+      "ms": 0.002
+    },
+    {
+      "node": "researcher",
+      "tool": "fetch",
+      "input_summary": "https://www.ibm.com/think/topics/retrieval-augmented-generation",
+      "output_summary": "RAG empowers organizations to avoid high retraining costs when adapting generati",
+      "tokens": 112,
+      "usd": 0.0,
+      "ms": 0.014
+    },
+    {
+      "node": "researcher",
+      "tool": "rank",
+      "input_summary": "12 passages \u00b7 text-embedding-3-small",
+      "output_summary": "best passage by meaning",
+      "tokens": 941,
+      "usd": 1.9e-05,
+      "ms": 0.002
+    },
+    {
+      "node": "researcher",
+      "tool": "search",
+      "input_summary": "RAG comparison",
+      "output_summary": "5 results",
+      "tokens": 3,
+      "usd": 0.0,
+      "ms": 0.002
+    },
+    {
+      "node": "researcher",
+      "tool": "fetch",
+      "input_summary": "https://medium.com/@zilliz_learn/openai-rag-vs-your-customized-rag-which-one-is-better-4c65a7c6317b",
+      "output_summary": "fetch failed: Client error '403 Forbidden' for url 'https://medium.com/@zilliz_learn/openai-rag-vs-your-customized-rag-which-one-is-better-4c65a7c6317b'\nFor more information check: https://developer.m",
+      "tokens": 1,
+      "usd": 0.0,
+      "ms": 0.004
+    },
+    {
+      "node": "researcher",
+      "tool": "fetch",
+      "input_summary": "https://www.lettria.com/blogpost/rag-tools-the-comparison",
+      "output_summary": "Below, we compare the top solutions. Top RAG Tools Compared Lettria\u2019s GraphRAG K",
+      "tokens": 126,
+      "usd": 0.0,
+      "ms": 0.012
+    },
+    {
+      "node": "researcher",
+      "tool": "rank",
+      "input_summary": "12 passages \u00b7 text-embedding-3-small",
+      "output_summary": "best passage by meaning",
+      "tokens": 866,
+      "usd": 1.7e-05,
+      "ms": 0.002
+    },
+    {
+      "node": "researcher",
+      "tool": "fetch",
+      "input_summary": "https://www.ibm.com/think/topics/rag-vs-fine-tuning",
+      "output_summary": "RAG uses an organization\u2019s internal data to augment prompt engineering, while fi",
+      "tokens": 98,
+      "usd": 0.0,
+      "ms": 1518.027
+    },
+    {
+      "node": "researcher",
+      "tool": "rank",
+      "input_summary": "12 passages \u00b7 text-embedding-3-small",
+      "output_summary": "best passage by meaning",
+      "tokens": 1084,
+      "usd": 2.2e-05,
+      "ms": 0.009
+    },
+    {
+      "node": "researcher",
+      "tool": "search",
+      "input_summary": "RAG advantages",
+      "output_summary": "5 results",
+      "tokens": 3,
+      "usd": 0.0,
+      "ms": 0.004
+    },
+    {
+      "node": "researcher",
+      "tool": "fetch",
+      "input_summary": "https://medium.com/data-science/the-limitations-and-advantages-of-retrieval-augmented-generation-rag-9ec9b4ae3729",
+      "output_summary": "fetch failed: Client error '403 Forbidden' for url 'https://medium.com/data-science/the-limitations-and-advantages-of-retrieval-augmented-generation-rag-9ec9b4ae3729'\nFor more information check: https",
+      "tokens": 1,
+      "usd": 0.0,
+      "ms": 0.005
+    },
+    {
+      "node": "researcher",
+      "tool": "fetch",
+      "input_summary": "https://community.deeplearning.ai/t/why-and-when-to-use-rag/682599",
+      "output_summary": "One of the significant advantages of using RAG is to reduce hallucinations in LL",
+      "tokens": 88,
+      "usd": 0.0,
+      "ms": 0.009
+    },
+    {
+      "node": "researcher",
+      "tool": "rank",
+      "input_summary": "12 passages \u00b7 text-embedding-3-small",
+      "output_summary": "best passage by meaning",
+      "tokens": 738,
+      "usd": 1.5e-05,
+      "ms": 0.003
+    },
+    {
+      "node": "researcher",
+      "tool": "fetch",
+      "input_summary": "https://cloud.google.com/use-cases/retrieval-augmented-generation",
+      "output_summary": "fetch failed: no readable article text (0 chars)",
+      "tokens": 1,
+      "usd": 0.0,
+      "ms": 2133.993
+    },
+    {
+      "node": "researcher",
+      "tool": "search",
+      "input_summary": "RAG disadvantages",
+      "output_summary": "5 results",
+      "tokens": 4,
+      "usd": 0.0,
+      "ms": 0.006
+    },
+    {
+      "node": "researcher",
+      "tool": "fetch",
+      "input_summary": "https://medium.com/data-science/the-limitations-and-advantages-of-retrieval-augmented-generation-rag-9ec9b4ae3729",
+      "output_summary": "fetch failed: Client error '403 Forbidden' for url 'https://medium.com/data-science/the-limitations-and-advantages-of-retrieval-augmented-generation-rag-9ec9b4ae3729'\nFor more information check: https",
+      "tokens": 1,
+      "usd": 0.0,
+      "ms": 0.004
+    },
+    {
+      "node": "researcher",
+      "tool": "fetch",
+      "input_summary": "https://atlan.com/know/rag-accuracy-problems",
+      "output_summary": "RAG accuracy problems are the gaps between what a retrieval-augmented generation",
+      "tokens": 126,
+      "usd": 0.0,
+      "ms": 2440.812
+    },
+    {
+      "node": "researcher",
+      "tool": "rank",
+      "input_summary": "12 passages \u00b7 text-embedding-3-small",
+      "output_summary": "best passage by meaning",
+      "tokens": 1323,
+      "usd": 2.6e-05,
+      "ms": 0.009
+    },
+    {
+      "node": "writer",
+      "tool": null,
+      "input_summary": "10 evidence items",
+      "output_summary": "6 claims in 5 sections",
+      "tokens": 2334,
+      "usd": 0.00058,
+      "ms": 5423.786
+    },
+    {
+      "node": "critic",
+      "tool": null,
+      "input_summary": "6 claims",
+      "output_summary": "verdict=accept, unsupported=0",
+      "tokens": 2408,
+      "usd": 0.000391,
+      "ms": 1990.359
+    },
+    {
+      "node": "approval",
+      "tool": null,
+      "input_summary": "human approval requested",
+      "output_summary": "approved=True",
+      "tokens": 0,
+      "usd": 0.0,
+      "ms": 0.031
+    },
+    {
+      "node": "finalizer",
+      "tool": null,
+      "input_summary": "6 claims, 10 evidence",
+      "output_summary": "status=complete, dropped=0, sources=8",
+      "tokens": 0,
+      "usd": 0.0,
+      "ms": 0.14
+    }
+  ],
+  "evidence": [
+    {
+      "id": "E1",
+      "claim_hint": "What does the acronym RAG stand for?",
+      "source_title": "What is RAG? - Retrieval-Augmented Generation AI Explained - AWS",
+      "source_url": "https://aws.amazon.com/what-is/retrieval-augmented-generation",
+      "snippet": "What is RAG (Retrieval-Augmented Generation)? What is Retrieval-Augmented Generation? Retrieval-Augmented Generation (RAG) is the process of optimizing the output of a large language model, so it references an authoritative knowledge base outside of its training data sources before generating a response. Large Language Models (LLMs) are trained on vast volumes of data and use billions of parameters to generate original output for tasks like answering questions, translating languages, and completing sentences. RAG extends the already powerful capabilities of LLMs to specific domains or an organization's internal knowledge base, all without the need to retrain the model."
+    },
+    {
+      "id": "E2",
+      "claim_hint": "What does the acronym RAG stand for?",
+      "source_title": "RAG Definition & Meaning | Dictionary.com",
+      "source_url": "https://www.dictionary.com/browse/rag",
+      "snippet": "rag 1 American noun - a worthless piece of cloth, especially one that is torn or worn. - rags, ragged or tattered clothing. The tramp was dressed in rags."
+    },
+    {
+      "id": "E3",
+      "claim_hint": "In what contexts is RAG commonly used?",
+      "source_title": "RAG Is Dead. Long Live Context Engineering for LLM Systems",
+      "source_url": "https://www.callstack.com/blog/rag-is-dead-long-live-context-engineering-for-llm-systems",
+      "snippet": "When context is well-defined, the model behaves more predictably. That predictability matters more than RAG architectural elegance. When RAG Still Makes Sense RAG is not obsolete."
+    },
+    {
+      "id": "E4",
+      "claim_hint": "In what contexts is RAG commonly used?",
+      "source_title": "Context Engineering for RAG Agents: Enterprise Guide 2026",
+      "source_url": "https://atlan.com/know/context-engineering/context-engineering-for-rag-agents",
+      "snippet": "A naive RAG system trusts the index. A context-engineered RAG system treats retrieval as one step in a governed context path. | RAG step | Naive RAG pattern | Context-engineered pattern | |---|---|---| | Source selection | Retrieve from indexed documents | Retrieve from certified, owned, policy-aware sources | | User context | Treat most questions the same way | Apply role, region, purpose, and domain constraints | | Ranking | Prioritize semantic similarity | Combine similarity with freshness, quality, lineage, and usage signals | | Business meaning | Depend on nearby text chunks | Add glossary terms, semantic rules, metrics, owners, and relationships | | Context packaging | Send the top chunks to the model | Compress, order, deduplicate, and annotate the smallest useful payload | | Traceability | Log the final answer | Log sources, policies, rankings, context versions, and user feedback | The important changes are system responsibilities: - Before retrieval: Source eligibility is checked against ownership, certification, access, purpose, and domain. - During retrieval: Chunks are filtered and ranked using freshness, quality, and lineage, not semantic similarity alone."
+    },
+    {
+      "id": "E5",
+      "claim_hint": "What are the key features or characteristics of RAG?",
+      "source_title": "5 key features and benefits of retrieval augmented generation (RAG) | The Microsoft Cloud Blog",
+      "source_url": "https://www.microsoft.com/en-us/microsoft-cloud/blog/2025/02/13/5-key-features-and-benefits-of-retrieval-augmented-generation-rag",
+      "snippet": "Key features and benefits of RAG Here are five key features and benefits that will help you understand RAG better. 1. Current and up-to-date knowledge RAG models rely on external knowledge bases to retrieve real-time and relevant information before generating responses."
+    },
+    {
+      "id": "E6",
+      "claim_hint": "What are the key features or characteristics of RAG?",
+      "source_title": "What is RAG (Retrieval Augmented Generation)? | IBM",
+      "source_url": "https://www.ibm.com/think/topics/retrieval-augmented-generation",
+      "snippet": "RAG empowers organizations to avoid high retraining costs when adapting generative AI models to domain-specific use cases. Enterprises can use RAG to complete gaps in a machine learning model\u2019s knowledge base so it can provide better answers. The primary benefits of RAG include: When implementing AI, most organizations first select a foundation model: the deep-learning models that serve as the basis for the development of more advanced versions."
+    },
+    {
+      "id": "E7",
+      "claim_hint": "How does RAG compare to similar concepts or frameworks?",
+      "source_title": "RAG tools: the comparison - Lettria",
+      "source_url": "https://www.lettria.com/blogpost/rag-tools-the-comparison",
+      "snippet": "Below, we compare the top solutions. Top RAG Tools Compared Lettria\u2019s GraphRAG Key Features: - Graph-based retrieval for high accuracy - Hybrid integration of structured and unstructured data - Transparent results with full traceability Best for: - Enterprises requiring context-aware AI with verifiable outputs. OpenAI\u2019s RAG Implementation Key Features: - LLM-powered retrieval - API-based customization - Cloud-based deployment Best for: Developers building RAG-enabled chatbots and virtual assistants."
+    },
+    {
+      "id": "E8",
+      "claim_hint": "How does RAG compare to similar concepts or frameworks?",
+      "source_title": "RAG vs. Fine-tuning | IBM",
+      "source_url": "https://www.ibm.com/think/topics/rag-vs-fine-tuning",
+      "snippet": "RAG uses an organization\u2019s internal data to augment prompt engineering, while fine-tuning retrains a model on a focused set of external data to improve performance. RAG plugs an LLM into stores of current, private data that would otherwise be inaccessible to it. RAG models can return more accurate answers with the added context of internal data than they otherwise would be able to without it."
+    },
+    {
+      "id": "E9",
+      "claim_hint": "What are the benefits and drawbacks of using RAG?",
+      "source_title": "Why and when to use RAG - AI Discussions - DeepLearning.AI",
+      "source_url": "https://community.deeplearning.ai/t/why-and-when-to-use-rag/682599",
+      "snippet": "One of the significant advantages of using RAG is to reduce hallucinations in LLMs. By relying on a retrieval system to fetch relevant, narrower documents, the model can base its generation on factual, up-to-date information rather than pulling from potentially inaccurate or outdated general knowledge stored in the model. Thanks for bringing this up."
+    },
+    {
+      "id": "E10",
+      "claim_hint": "What are the benefits and drawbacks of using RAG?",
+      "source_title": "RAG Accuracy Problems: Why They Happen and How to Fix Them",
+      "source_url": "https://atlan.com/know/rag-accuracy-problems",
+      "snippet": "RAG accuracy problems are the gaps between what a retrieval-augmented generation system returns and what it should return: correct, current, and relevant answers. They emerge from failures at four distinct RAG pipeline stages \u2013 data, retrieval, generation, and evaluation \u2013 and are most severe when the underlying knowledge base is ungoverned or stale. The promise of RAG is straightforward: ground AI responses in retrieved documents and you eliminate hallucination. The production reality is different."
+    }
+  ],
+  "created_at": "2026-10-19T14:05:03.374759+00:00",
+  "keyless": false,
+  "markdown": "# Research Report\n\n**Question:** What is RAG?\n\n## Executive Summary\n\nRetrieval-Augmented Generation (RAG) is a process that enhances the capabilities of large language models by integrating external authoritative knowledge bases, allowing for more accurate and contextually relevant responses.\n\n## Definition of RAG\n\n- RAG stands for Retrieval-Augmented Generation, which is a method that optimizes the output of large language models by referencing external knowledge bases before generating responses. [1]\n\n## Contexts of RAG Usage\n\n- RAG is commonly used in contexts where the model needs to behave predictably and where the retrieval of information is governed by specific constraints. [2][3]\n\n## Key Features of RAG\n\n- Key features of RAG include the ability to provide current and up-to-date knowledge by relying on external knowledge bases, which helps in generating more accurate responses. [4][5]\n\n## Comparison with Similar Concepts\n\n- RAG differs from fine-tuning in that it uses an organization's internal data to enhance prompt engineering without the need for retraining the model. [6]\n\n## Benefits and Drawbacks of RAG\n\n- One significant advantage of RAG is its ability to reduce hallucinations in language models by relying on a retrieval system to provide factual and up-to-date information. [7]\n- RAG accuracy problems can arise from failures at various stages of the RAG pipeline, particularly when the underlying knowledge base is ungoverned or outdated. [8]\n\n## Sources\n\n1. What is RAG? - Retrieval-Augmented Generation AI Explained - AWS \u2014 <https://aws.amazon.com/what-is/retrieval-augmented-generation>\n2. RAG Is Dead. Long Live Context Engineering for LLM Systems \u2014 <https://www.callstack.com/blog/rag-is-dead-long-live-context-engineering-for-llm-systems>\n3. Context Engineering for RAG Agents: Enterprise Guide 2026 \u2014 <https://atlan.com/know/context-engineering/context-engineering-for-rag-agents>\n4. 5 key features and benefits of retrieval augmented generation (RAG) | The Microsoft Cloud Blog \u2014 <https://www.microsoft.com/en-us/microsoft-cloud/blog/2025/02/13/5-key-features-and-benefits-of-retrieval-augmented-generation-rag>\n5. What is RAG (Retrieval Augmented Generation)? | IBM \u2014 <https://www.ibm.com/think/topics/retrieval-augmented-generation>\n6. RAG vs. Fine-tuning | IBM \u2014 <https://www.ibm.com/think/topics/rag-vs-fine-tuning>\n7. Why and when to use RAG - AI Discussions - DeepLearning.AI \u2014 <https://community.deeplearning.ai/t/why-and-when-to-use-rag/682599>\n8. RAG Accuracy Problems: Why They Happen and How to Fix Them \u2014 <https://atlan.com/know/rag-accuracy-problems>\n",
+  "citation_coverage": 1.0,
+  "support_rate": 1.0,
+  "approval_pending": false
+}

@@ -1,14 +1,15 @@
 # Agentic Research & Report Assistant
 
-**▶ [Try the live demo](https://agentic-research-assistant-ra3rebpqgkqvyyw5wryrma.streamlit.app/)** — cited research reports right in your browser · keyless mode · no signup.
+**▶ [Try the live demo](https://agentic-research-assistant-ra3rebpqgkqvyyw5wryrma.streamlit.app/)** — cited research reports right in your browser · keyless mode · no signup. Its **History** page also has two runs recorded in real mode.
 
 **🎬 [Watch the real-mode demo](https://youtu.be/FlnEkglGr5c)** (3:36) — the same app on GPT-4o-mini and live web search.
+Or read two real-mode reports: [What is RAG?](data/real_runs/report_6435b1b6cc0f.md) · [What is reranking and why are cross-encoders used?](data/real_runs/report_e2450b4c6720.md)
 
 [![Live demo](https://img.shields.io/badge/Live%20demo-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://agentic-research-assistant-ra3rebpqgkqvyyw5wryrma.streamlit.app/)
 [![Demo video](https://img.shields.io/badge/Demo%20video-YouTube-FF0000?logo=youtube&logoColor=white)](https://youtu.be/FlnEkglGr5c)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
 [![CI](https://github.com/Baron197/agentic-research-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/Baron197/agentic-research-assistant/actions/workflows/ci.yml)
-[![tests](https://img.shields.io/badge/tests-165%20passing-brightgreen.svg)](#testing--ci)
+[![tests](https://img.shields.io/badge/tests-168%20passing-brightgreen.svg)](#testing--ci)
 [![Lint: ruff](https://img.shields.io/badge/lint-ruff-46a2f1.svg)](https://github.com/astral-sh/ruff)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Keyless](https://img.shields.io/badge/runs-keyless%20%240.00-brightgreen.svg)](#quickstart-keyless)
@@ -241,6 +242,9 @@ Five pages (native `st.navigation`, shared state across pages):
   [see the caveat](#critic-ab--and-what-it-does-not-prove)).
 - **History** — a browsable table of past runs, each marked real or keyless; reopen any
   into all six tabs (a run still waiting for approval can be approved or rejected there too).
+  On the keyless demo it also lists two runs recorded on a real-mode server (GPT-4o-mini and
+  live web search), shipped in `data/real_runs/`, so visitors can see what a paid run produces;
+  they stay out of the demo's run index and its averages.
 - **Observability** — the aggregate dashboard (total runs, avg cost, avg/p95 latency,
   avg coverage) fed by `GET /metrics`. When a real-mode server also has keyless runs, it
   averages real runs by default, since free millisecond runs would flatter the numbers.
@@ -453,10 +457,11 @@ src/agent/
 ui/streamlit_app.py  multi-page thin client (Research / Critic A/B / History / Observability / Guide; light + dark)
 .streamlit/config.toml  base UI theme
 data/corpus/         11 seed docs (the "web" FakeSearch/FakeFetch operate over)
+data/real_runs/      two real-mode runs (run JSON + report) shown on the keyless demo's History page
 eval/
   tasks.jsonl        12 golden tasks (incl. 2 out-of-corpus abstention checks)
   run_eval.py        metrics + critic A/B + CI gate
-tests/               deterministic, keyless end-to-end + unit tests (165; 27 need optional extras, which CI installs in a second job)
+tests/               deterministic, keyless end-to-end + unit tests (168; 27 need optional extras, which CI installs in a second job)
 docs/screenshots/    UI screenshots used in this README
 Dockerfile  docker-compose.yml  .dockerignore  Makefile  pyproject.toml  requirements.txt
 .env.example  .gitattributes  .github/workflows/ci.yml
@@ -465,7 +470,7 @@ README.md  ARCHITECTURE.md  DEPLOYMENT.md  REAL_MODE.md  LICENSE
 
 ## Testing & CI
 
-`make test` runs a fast, deterministic, keyless suite of **165 tests** (graph
+`make test` runs a fast, deterministic, keyless suite of **168 tests** (graph
 end-to-end, no-fabricated-sources, the one-revise critic loop + iteration cap,
 tiny-budget → `partial`, the **parallel researcher fan-out** — proving a
 concurrent run is byte-identical to a serial one — the **depth** knob, the
@@ -484,16 +489,17 @@ on a real-mode server (every paid service off, uncapped, recorded as keyless, an
 apart from real runs), untrusted text shown as text (an image or link planted in a page,
 claim or question renders as its characters), the fetcher's SSRF guard (internal addresses
 refused on every hop, and the connection pinned to the address that was checked, so DNS
-rebinding can't swap one in), and the API incl. the `/runs`, `/runs/{id}/approval`, `/corpus`,
+rebinding can't swap one in), the shipped real-mode example runs (still valid runs, citing
+only gathered evidence, with exactly the report the renderer writes), and the API incl. the `/runs`, `/runs/{id}/approval`, `/corpus`,
 `/research/stream`, `enable_critic` and 422 paths).
 Twenty-seven of them exercise **optional** extras
 (19 the MCP server — including its schemas, its real-mode cost guard, its refusal to skip a
 required approval, and a stdout-purity check that protects the stdio transport — 6 the DSPy
 backend, 1 PDF-corpus reading, 1 rendering a report to HTML with markdown-it) and do not run
 unless those extras are installed. So a
-default keyless install reports **138 passed, 4 skipped** — the four
+default keyless install reports **141 passed, 4 skipped** — the four
 optional groups skip as whole units — while a machine with the extras present
-runs all **165**, still keyless via fakes / `DummyLM`. CI
+runs all **168**, still keyless via fakes / `DummyLM`. CI
 (`.github/workflows/ci.yml`) runs `ruff check .` → `pytest -q` → the eval gate, and a
 second job installs the optional extras and runs the full suite, so every test runs in CI,
 all keyless with no secrets.
