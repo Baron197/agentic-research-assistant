@@ -466,6 +466,7 @@ docs/screenshots/    UI screenshots used in this README
 Dockerfile  docker-compose.yml  .dockerignore  Makefile  pyproject.toml  requirements.txt
 .env.example  .gitattributes  .github/workflows/ci.yml
 README.md  ARCHITECTURE.md  DEPLOYMENT.md  REAL_MODE.md  LICENSE
+CLAUDE.md            how to work on this repo: setup, commands, rules, definition of done
 ```
 
 ## Testing & CI
